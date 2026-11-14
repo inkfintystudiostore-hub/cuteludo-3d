@@ -1,0 +1,68 @@
+name: Test, Build & Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  verify:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Type-check and build Vite + Worker
+        run: npm run build
+
+  deploy:
+    name: Deploy to Cloudflare Workers
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      HAS_CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Skip notice when CLOUDFLARE_API_TOKEN is not set
+        if: env.HAS_CF_TOKEN != 'true'
+        run: |
+          echo "Skipping GitHub Actions Wrangler deploy because secrets.CLOUDFLARE_API_TOKEN is not set."
+          echo "Either add CLOUDFLARE_API_TOKEN in GitHub Repository Secrets or use Cloudflare Workers Builds."
+
+      - name: Deploy Worker & Static Assets
+        if: env.HAS_CF_TOKEN == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || '4bbab9d072b7d3ca099ba18858f7abe3' }}

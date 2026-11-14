@@ -1,0 +1,97 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-cute: 'Fredoka', 'Nunito', ui-rounded, system-ui, sans-serif;
+  --color-ink: #2b213a;
+  --shadow-ink: 4px 4px 0px #2b213a;
+  --shadow-ink-sm: 3px 3px 0px #2b213a;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: var(--font-cute);
+  color: var(--color-ink);
+  /* Same colour as the 3D scene's clear colour (SCENE_BACKGROUND). */
+  background: #ffeef4;
+}
+
+/*
+ * HUD layout. The board cell takes all leftover space; the panels stack above and below it in
+ * portrait and move into two narrow side columns in landscape, where height is the scarce axis.
+ */
+.hud-grid {
+  display: grid;
+  height: 100%;
+  gap: 0.5rem 0.75rem;
+  padding: max(0.5rem, env(safe-area-inset-top)) 0.6rem max(0.6rem, env(safe-area-inset-bottom));
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'menu menu'
+    'pink cyan'
+    'board board'
+    'mint yellow'
+    'dock dock';
+}
+
+@media (orientation: landscape) {
+  .hud-grid {
+    --side-left: clamp(8.75rem, 14vw, 11.25rem);
+    --side-right: clamp(9.5rem, 17vw, 13rem);
+    grid-template-columns: var(--side-left) minmax(0, 1fr) var(--side-right);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'menu board cyan'
+      'pink board dock'
+      '. board dock'
+      'mint board yellow';
+  }
+
+  /* Short landscape windows have no room for the move log beside the dice. */
+  @media (max-height: 560px) {
+    .sim-log {
+      display: none;
+    }
+  }
+}
+
+@keyframes pop-in {
+  0% {
+    transform: scale(0.6) rotate(-8deg);
+  }
+  60% {
+    transform: scale(1.12) rotate(3deg);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes banner-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.85);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
