@@ -29,10 +29,11 @@ export function parseRoomCodeInput(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
-  // Try parsing as a full URL or query string with ?room= (handles URL-encoded hyphens/spaces).
+  // Try parsing as a full URL or query string with ?room= (handles URL-encoded hyphens/spaces & surrounding message text).
   const queryStart = trimmed.indexOf('?');
   if (queryStart >= 0 || /^room=/i.test(trimmed)) {
-    const queryStr = queryStart >= 0 ? trimmed.slice(queryStart + 1).split('#')[0] : trimmed;
+    const rawQuery = queryStart >= 0 ? trimmed.slice(queryStart + 1).split('#')[0] : trimmed;
+    const queryStr = rawQuery.split(/\s+/)[0] ?? rawQuery;
     try {
       const params = new URLSearchParams(queryStr);
       const roomParam = params.get('room');
@@ -45,7 +46,7 @@ export function parseRoomCodeInput(raw: string): string | null {
     }
   }
 
-  const roomQueryMatch = trimmed.match(/[?&]room=([^&#]+)/i);
+  const roomQueryMatch = trimmed.match(/[?&]room=([^&#\s]+)/i);
   if (roomQueryMatch) {
     let decoded = roomQueryMatch[1];
     try {
@@ -57,9 +58,15 @@ export function parseRoomCodeInput(raw: string): string | null {
     return digits.length === ROOM_CODE_LENGTH ? digits : null;
   }
 
-  // Otherwise strip spaces/hyphens and verify exact 9 numeric digits.
+  // Otherwise strip spaces/hyphens and verify exact 9 numeric digits (or single 9-digit token in pasted text).
   const digitsOnly = trimmed.replace(/[\s\-]/g, '');
-  return /^\d{9}$/.test(digitsOnly) ? digitsOnly : null;
+  if (/^\d{9}$/.test(digitsOnly)) return digitsOnly;
+  const embeddedCodeMatch = trimmed.match(/\b(\d{3}[-\s]?\d{3}[-\s]?\d{3})\b/);
+  if (embeddedCodeMatch) {
+    const clean = embeddedCodeMatch[1].replace(/\D/g, '');
+    return clean.length === ROOM_CODE_LENGTH ? clean : null;
+  }
+  return null;
 }
 
 const TRUSTED_EMBED_ORIGINS = new Set([
@@ -99,6 +106,19 @@ export function resolveShareBaseUrl(): string {
     return `${window.location.origin}${path}`;
   }
   return 'https://chibi-ludo.app';
+}
+
+/** Removes any ?room= query param from the current window URL without reloading. */
+export function clearRoomFromBrowserUrl(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('room')) return;
+    url.searchParams.delete('room');
+    window.history.replaceState(null, '', url.toString());
+  } catch {
+    // Ignore history API restrictions in sandboxed frames.
+  }
 }
 
 /** Builds a shareable invite link containing ?room=<code>. */

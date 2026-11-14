@@ -359,7 +359,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return false;
   },
 
-  initRoomSession: (room) => set({ room: normalizeRoom(room) }),
+  initRoomSession: (room) =>
+    set({
+      room: normalizeRoom(room),
+      notice: room.statusNote ?? 'Connecting to live room…',
+      roomAlert: null,
+    }),
 
   setRoomConnectionStatus: (status, statusNote) =>
     set((s) =>
@@ -416,6 +421,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         room: nextRoom,
         game: snapshot.game,
         legalMoves: legal,
+        roomAlert: null,
+        notice: snapshot.started ? prev.notice : turnNotice(snapshot.game.currentTeam),
       });
       return;
     }

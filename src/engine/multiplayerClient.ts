@@ -6,7 +6,7 @@ import { registerRoomTransport, useGameStore } from './gameStore';
 import type { GameMode } from './ludoRules';
 import type { TeamId } from './boardMap';
 import type { ClientMessage, RoomEmoteId, ServerMessage } from './multiplayerProtocol';
-import { resolveEmbeddedParentUrl } from './roomCode';
+import { clearRoomFromBrowserUrl, resolveEmbeddedParentUrl } from './roomCode';
 
 interface ActiveConnectionParams {
   code: string;
@@ -176,7 +176,7 @@ function closeActiveSocket(sendLeave: boolean): void {
   }
 }
 
-export function disconnectMultiplayerRoom(): void {
+function teardownMultiplayerRoom(): void {
   intentionalClose = true;
   activeCode = null;
   activeParams = null;
@@ -185,6 +185,12 @@ export function disconnectMultiplayerRoom(): void {
   lastServerError = null;
   clearTimers();
   closeActiveSocket(true);
+}
+
+export function disconnectMultiplayerRoom(): void {
+  teardownMultiplayerRoom();
+  notifyParentRoomCode(null);
+  clearRoomFromBrowserUrl();
 }
 
 export function retryMultiplayerConnection(): void {
@@ -334,7 +340,7 @@ function openSocket(params: ActiveConnectionParams): void {
 export function connectMultiplayerRoom(code: string, role: 'host' | 'guest', mode: GameMode, playerName?: string): void {
   if (socket && activeCode === code && socket.readyState <= WebSocket.OPEN) return;
 
-  disconnectMultiplayerRoom();
+  teardownMultiplayerRoom();
   attachLifecycleListeners();
 
   intentionalClose = false;

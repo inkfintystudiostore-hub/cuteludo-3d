@@ -12,7 +12,6 @@ import {
   connectMultiplayerRoom,
   disconnectMultiplayerRoom,
   loadPlayerDisplayName,
-  notifyParentRoomCode,
   reserveUniqueRoomCode,
   retryMultiplayerConnection,
   savePlayerDisplayName,
@@ -48,18 +47,6 @@ const INK_BTN =
 function readInitialRoomFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
   return parseRoomCodeInput(window.location.search);
-}
-
-function clearRoomFromBrowserUrl(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const url = new URL(window.location.href);
-    if (!url.searchParams.has('room')) return;
-    url.searchParams.delete('room');
-    window.history.replaceState(null, '', url.toString());
-  } catch {
-    // Ignore history API restrictions in sandboxed frames.
-  }
 }
 
 function RoomSeatsRoster({
@@ -211,7 +198,6 @@ export function HomeLobbyModal() {
 
   const handleStartLocal = () => {
     disconnectMultiplayerRoom();
-    clearRoomFromBrowserUrl();
     setCreatedCode(null);
     startMatch({
       mode: format,
@@ -260,8 +246,6 @@ export function HomeLobbyModal() {
 
   const handleLeaveLobbyRoom = () => {
     disconnectMultiplayerRoom();
-    notifyParentRoomCode(null);
-    clearRoomFromBrowserUrl();
     setCreatedCode(null);
     useGameStore.setState({ room: null, roomAlert: null });
   };

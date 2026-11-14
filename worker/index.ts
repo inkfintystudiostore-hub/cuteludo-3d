@@ -209,17 +209,16 @@ export class LudoRoomDO extends DurableObject<Env> {
     }
 
     const updated = joinRoom(this.room, playerId, playerName);
-    if (!updated.started && !updated.seats.some((s) => s.playerId === playerId)) {
+    if (!updated.seats.some((s) => s.playerId === playerId)) {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
+      const message = updated.started
+        ? 'This match has already started. Ask your friend to host a new room.'
+        : 'This room is already full.';
+      const reason = updated.started ? 'Match already started' : 'Room is full';
       server.accept();
-      server.send(
-        JSON.stringify({
-          type: 'error',
-          message: 'This room is already full.',
-        } satisfies ServerMessage),
-      );
-      server.close(4003, 'Room is full');
+      server.send(JSON.stringify({ type: 'error', message } satisfies ServerMessage));
+      server.close(4003, reason);
       return new Response(null, { status: 101, webSocket: client });
     }
 

@@ -407,6 +407,8 @@ describe('roomCode helpers', () => {
     );
     expect(parseRoomCodeInput(url)).toBe(code);
     expect(parseRoomCodeInput(`https://inkfinitystudio.store/game-room?parentUrl=https%3A%2F%2Finkfinitystudio.store&room=${formatRoomCode(code).replace(/-/g, '%2D')}&ref=wa`)).toBe(code);
+    expect(parseRoomCodeInput(`Join my Ludo room! https://inkfinitystudio.store/game-room?room=${code} at 8pm`)).toBe(code);
+    expect(parseRoomCodeInput(`Room code is ${formatRoomCode(code)} come fast!`)).toBe(code);
     expect(parseRoomCodeInput(formatRoomCode(code))).toBe(code);
     expect(parseRoomCodeInput(`  ${code}  `)).toBe(code);
     expect(parseRoomCodeInput('12345')).toBeNull();
