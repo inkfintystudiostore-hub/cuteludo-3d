@@ -38,14 +38,20 @@ function CameraRig() {
 
   useLayoutEffect(() => {
     const aspect = width / height;
-    const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
-    const nearEdge = BOARD_RADIUS * Math.cos(ELEVATION);
-    const fitHeight = (BOARD_RADIUS * Math.sin(ELEVATION) + HEADROOM) / tanHalf + nearEdge;
-    const fitWidth = BOARD_RADIUS / (tanHalf * aspect) + nearEdge;
+    const isNarrow = width < 640 || aspect < 0.95;
+    const isCompact = isNarrow || height < 540;
+    const fov = isNarrow ? 38.5 : FOV;
+    const elevation = isNarrow ? THREE.MathUtils.degToRad(52) : ELEVATION;
+    const radius = isNarrow ? 7.82 : isCompact ? 8.1 : BOARD_RADIUS;
+    const headroom = isCompact ? 0.65 : HEADROOM;
+    const tanHalf = Math.tan(THREE.MathUtils.degToRad(fov / 2));
+    const nearEdge = radius * Math.cos(elevation);
+    const fitHeight = (radius * Math.sin(elevation) + headroom) / tanHalf + nearEdge;
+    const fitWidth = radius / (tanHalf * aspect) + nearEdge;
     const distance = Math.max(fitHeight, fitWidth);
 
-    camera.fov = FOV;
-    camera.position.set(0, Math.sin(ELEVATION) * distance, Math.cos(ELEVATION) * distance);
+    camera.fov = fov;
+    camera.position.set(0, Math.sin(elevation) * distance, Math.cos(elevation) * distance);
     camera.lookAt(0, 0, 0);
     camera.updateProjectionMatrix();
 

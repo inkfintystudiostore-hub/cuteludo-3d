@@ -38,8 +38,8 @@ const GRID_AREA: Record<TeamId, string> = { PINK: 'pink', CYAN: 'cyan', YELLOW: 
 /** How much faster animations run while simulation mode is active. */
 const SIMULATION_SPEED = 4;
 const SIMULATION_STEP_MS = 80;
-const AI_ROLL_DELAY_MS = 360;
-const AI_MOVE_DELAY_MS = 420;
+const AI_ROLL_DELAY_MS = 285;
+const AI_MOVE_DELAY_MS = 335;
 
 const INK_BOX = 'border-[3px] border-ink shadow-ink';
 const INK_BUTTON =
@@ -318,28 +318,28 @@ function StatusBadge({ team }: { team: TeamId }) {
       <div
         role="status"
         aria-label={summary}
-        className={`relative flex items-center gap-2 rounded-2xl bg-white py-1.5 pr-3 pl-1.5 transition-transform duration-200 ${INK_BOX} ${isTurn ? '-rotate-2 scale-105' : ''}`}
+        className={`relative flex items-center gap-1.5 sm:gap-2 rounded-xl sm:rounded-2xl bg-white py-1 pr-2 pl-1 sm:py-1.5 sm:pr-3 sm:pl-1.5 transition-transform duration-200 ${INK_BOX} ${isTurn ? '-rotate-2 scale-105' : ''}`}
       >
         <span
           aria-hidden
-          className="grid size-9 place-items-center rounded-xl border-[3px] border-ink text-ink"
+          className="grid size-7 sm:size-9 place-items-center rounded-lg sm:rounded-xl border-2 sm:border-[3px] border-ink text-ink"
           style={{ backgroundColor: TEAM_COLORS[team] }}
         >
-          <MascotIcon team={team} className="size-5" />
+          <MascotIcon team={team} className="size-4 sm:size-5" />
         </span>
         <span aria-hidden className="min-w-0 leading-tight">
-          <span className="flex items-center gap-1 text-sm font-bold tracking-wide uppercase">
+          <span className="flex items-center gap-1 text-xs sm:text-sm font-bold tracking-wide uppercase">
             <span className="max-w-22 truncate">{displayName}</span>
             {isMe && <span className="rounded bg-[#80ed99] px-1 text-[10px] font-bold">YOU</span>}
             {isBot && <span className="rounded bg-[#ffe0ea] px-1 text-[10px] font-bold">AI</span>}
           </span>
-          <span className="mt-0.5 flex items-center gap-2 text-xs font-semibold whitespace-nowrap">
+          <span className="mt-0.5 flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-semibold whitespace-nowrap">
             <span className="inline-flex items-center gap-0.5">
-              <HomeIcon className="size-3.5" />
+              <HomeIcon className="size-3 sm:size-3.5" />
               {home}/{PAWNS_PER_TEAM}
             </span>
             <span className="inline-flex items-center gap-0.5">
-              <YardIcon className="size-3.5" />
+              <YardIcon className="size-3 sm:size-3.5" />
               {yard}
             </span>
           </span>
@@ -459,10 +459,10 @@ function DialogueDock() {
     <section
       aria-label="Turn controls"
       style={{ gridArea: 'dock' }}
-      className={`relative flex items-stretch gap-3 rounded-2xl bg-white p-2.5 pt-5 landscape:flex-col landscape:gap-2 landscape:self-center ${INK_BOX}`}
+      className={`relative flex items-stretch gap-2 sm:gap-3 rounded-xl sm:rounded-2xl bg-white p-1.5 pt-3.5 sm:p-2.5 sm:pt-5 landscape:flex-col landscape:gap-2 landscape:self-center ${INK_BOX}`}
     >
       <span
-        className="absolute -top-4 left-3 -skew-x-6 rounded-md border-[3px] border-ink px-2.5 py-0.5 text-sm font-bold tracking-wider whitespace-nowrap uppercase shadow-ink-sm"
+        className="absolute -top-3.5 sm:-top-4 left-2.5 sm:left-3 -skew-x-6 rounded-md border-2 sm:border-[3px] border-ink px-2 sm:px-2.5 py-0.5 text-xs sm:text-sm font-bold tracking-wider whitespace-nowrap uppercase shadow-ink-sm"
         style={{ backgroundColor: TEAM_COLORS[team] }}
       >
         {displayName}
@@ -475,15 +475,15 @@ function DialogueDock() {
         aria-label="Toggle move history"
         title="Toggle move history"
         onClick={() => setShowLog((v) => !v)}
-        className={`absolute -top-3.5 right-2 grid size-7 cursor-pointer place-items-center rounded-md border-2 border-ink text-xs shadow-ink-sm ${
+        className={`absolute -top-3 sm:-top-3.5 right-2 grid size-6 sm:size-7 cursor-pointer place-items-center rounded-md border-2 border-ink text-xs shadow-ink-sm ${
           effectiveShowLog ? 'bg-ink text-white' : 'bg-white text-ink'
         }`}
       >
         <HistoryIcon className="size-3.5" />
       </button>
-      <DiceTray className="aspect-square w-28 shrink-0 landscape:mx-auto landscape:w-full landscape:max-w-32" />
-      <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
-        <p aria-live="polite" className="min-h-9 text-sm leading-snug font-semibold">
+      <DiceTray className="aspect-square w-20 shrink-0 sm:w-28 landscape:mx-auto landscape:w-full landscape:max-w-32" />
+      <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5 sm:gap-2">
+        <p aria-live="polite" className="min-h-6 sm:min-h-9 text-xs sm:text-sm leading-tight sm:leading-snug font-semibold">
           {isBotTurn ? `${TEAM_LABELS[team]} AI is thinking…` : notice}
         </p>
         <QuickPawnChips />
@@ -792,7 +792,7 @@ export function AnimeHUD({ children }: { children: ReactNode }) {
       <TopLeftGameMenu />
       <StatusBadge team="PINK" />
       <StatusBadge team="CYAN" />
-      <div style={{ gridArea: 'board' }} className="relative min-h-0 min-w-0">
+      <div style={{ gridArea: 'board' }} className="relative -mx-1 min-h-0 min-w-0 sm:mx-0">
         <div className="absolute inset-0">{children}</div>
         <EventBannerToast />
       </div>

@@ -13,7 +13,13 @@ import { HOME_PICNIC_SCALE, HOME_PROGRESS, TILE_SURFACE_Y, getPawnWorldPosition,
 import { areAllies } from '../engine/ludoRules';
 import { canLocalPlayerAct, useGameStore } from '../engine/gameStore';
 import { soundManager } from '../utils/soundManager';
-import { CAPTURE_FLIGHT_DURATION, CAPTURE_TWIRL_DURATION, HOP_DURATION, SPAWN_DURATION } from './animationTiming';
+import {
+  CAPTURE_DIZZY_DURATION,
+  CAPTURE_FLIGHT_DURATION,
+  CAPTURE_TWIRL_DURATION,
+  HOP_DURATION,
+  SPAWN_DURATION,
+} from './animationTiming';
 import { PICNIC_ACTIVITIES } from './ChibiFigure';
 import { PawnModel, type PawnClip } from './PawnModel';
 
@@ -68,6 +74,8 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
   const settledKeyRef = useRef('');
   /** True while this pawn is travelling, so skeletal models switch to their Hop clip. */
   const [travelling, setTravelling] = useState(false);
+  /** Expressive capture mood triggered mid-timeline (laughing attacker / dizzy victim). */
+  const [captureMood, setCaptureMood] = useState<'none' | 'laugh' | 'dizzy'>('none');
 
   const pawns = useGameStore((s) => s.game.pawns);
   const mode = useGameStore((s) => s.game.mode);
@@ -115,19 +123,24 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
       root.scale.setScalar(restScale);
     } else {
       const ease = 'power2.out';
-      gsap.to(root.position, { x: layout.x, y: TILE_SURFACE_Y, z: layout.z, duration: 0.3, ease });
-      gsap.to(root.rotation, { y: nearestAngle(root.rotation.y, layout.rotationY), duration: 0.3, ease });
-      gsap.to(root.scale, { x: restScale, y: restScale, z: restScale, duration: 0.3, ease });
+      gsap.to(root.position, { x: layout.x, y: TILE_SURFACE_Y, z: layout.z, duration: 0.24, ease });
+      gsap.to(root.rotation, { y: nearestAngle(root.rotation.y, layout.rotationY), duration: 0.24, ease });
+      gsap.to(root.scale, { x: restScale, y: restScale, z: restScale, duration: 0.24, ease });
     }
-    gsap.to(tilt.position, { y: 0, duration: 0.2 });
-    gsap.to(tilt.rotation, { x: 0, y: 0, z: 0, duration: 0.2 });
-    gsap.to(squash.scale, { ...NEUTRAL, duration: 0.2 });
-    idleRef.current = buildIdle(tilt, mood, 0.3 + pawn.slot * 0.15);
+    gsap.to(tilt.position, { y: 0, duration: 0.16 });
+    gsap.to(tilt.rotation, { x: 0, y: 0, z: 0, duration: 0.16 });
+    gsap.to(squash.scale, { ...NEUTRAL, duration: 0.16 });
+    idleRef.current = buildIdle(tilt, mood, 0.24 + pawn.slot * 0.12);
   }, [isAnimating, layout, restScale, mood, pawn.slot]);
 
   // Play this actor's part in the current event.
   useEffect(() => {
-    if (!lastEvent) return;
+    if (!lastEvent) {
+      setCaptureMood('none');
+      return;
+    }
+    if (lastEvent.type !== 'CAPTURE') setCaptureMood('none');
+
     const root = rootRef.current!;
     const tilt = tiltRef.current!;
     const squash = squashRef.current!;
@@ -148,8 +161,8 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
     /** Flatten on impact, then spring back. */
     const land = (timeline: gsap.core.Timeline, at?: number) =>
       timeline
-        .to(squash.scale, { ...SQUASH, duration: 0.07, ease: 'power1.out' }, at)
-        .to(squash.scale, { ...NEUTRAL, duration: 0.38, ease: 'elastic.out(1, 0.4)' });
+        .to(squash.scale, { ...SQUASH, duration: 0.056, ease: 'power1.out' }, at)
+        .to(squash.scale, { ...NEUTRAL, duration: 0.3, ease: 'elastic.out(1, 0.4)' });
 
     let timeline: gsap.core.Timeline | undefined;
 
@@ -165,7 +178,7 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
         timeline = gsap
           .timeline({ onComplete: done })
           .fromTo(root.scale, { x: 0.45, y: 0.45, z: 0.45 }, { x: 1, y: 1, z: 1, duration: SPAWN_DURATION, ease: 'elastic.out(1.1, 0.4)' }, 0)
-          .to(root.rotation, { y: yaw, duration: 0.2 }, 0)
+          .to(root.rotation, { y: yaw, duration: 0.16 }, 0)
           .to(root.position, { x: to.x, z: to.z, duration: SPAWN_DURATION, ease: 'power1.inOut' }, 0)
           .to(root.position, { y: TILE_SURFACE_Y + 1.8, duration: half, ease: 'power2.out' }, 0)
           .to(root.position, { y: TILE_SURFACE_Y, duration: half, ease: 'power2.in' }, half)
@@ -183,7 +196,7 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
         setTravelling(true);
         const hop = gsap.timeline({ onComplete: done });
         timeline = hop;
-        hop.to(root.scale, { x: 1, y: 1, z: 1, duration: 0.15 }, 0);
+        hop.to(root.scale, { x: 1, y: 1, z: 1, duration: 0.12 }, 0);
         let previous = { x: root.position.x, z: root.position.z };
         let yaw = root.rotation.y;
         const half = HOP_DURATION / 2;
@@ -202,36 +215,41 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
             .call(() => soundManager.playHop(step), [], at + HOP_DURATION);
           previous = waypoint;
         });
-        hop.to(tilt.rotation, { z: 0, duration: 0.12 }).to(squash.scale, { ...NEUTRAL, duration: 0.3, ease: 'elastic.out(1, 0.4)' }, '<');
+        hop.to(tilt.rotation, { z: 0, duration: 0.1 }).to(squash.scale, { ...NEUTRAL, duration: 0.24, ease: 'elastic.out(1, 0.4)' }, '<');
         break;
       }
 
       case 'CAPTURE': {
         if (lastEvent.attackerId === id) {
-          // The attacker is the hammer thrower: spin on the spot with the victim in tow.
+          // Attacker whips the victim around, then throws head back & laughs!
           takeStage();
           timeline = gsap
             .timeline()
-            .to(tilt.rotation, { y: TAU * 2, duration: CAPTURE_TWIRL_DURATION, ease: 'power1.inOut' })
-            .set(tilt.rotation, { y: 0 });
+            .to(tilt.rotation, { y: TAU * 2.5, duration: CAPTURE_TWIRL_DURATION, ease: 'power1.inOut' })
+            .set(tilt.rotation, { y: 0 })
+            .call(() => setCaptureMood('laugh'))
+            .to(tilt.position, { y: 0.22, duration: 0.085, ease: 'power2.out', yoyo: true, repeat: 5 })
+            .to(squash.scale, { x: 1.1, y: 0.9, z: 1.1, duration: 0.085, yoyo: true, repeat: 5 }, '<')
+            .to(squash.scale, { ...NEUTRAL, duration: 0.16, ease: 'power2.out' });
           break;
         }
         if (lastEvent.victimId !== id) break;
         takeStage();
         soundManager.playCapture(CAPTURE_TWIRL_DURATION, CAPTURE_FLIGHT_DURATION);
         const [tile, yard] = lastEvent.pathWaypoints;
-        const radius = 0.4;
+        const radius = 0.42;
         const startAngle = Math.atan2(root.position.z - tile.z, root.position.x - tile.x);
         const orbit = { angle: 0 };
         const launch = CAPTURE_TWIRL_DURATION;
         const halfFlight = CAPTURE_FLIGHT_DURATION / 2;
+        const impactAt = launch + CAPTURE_FLIGHT_DURATION;
         timeline = gsap
           .timeline({ onComplete: done })
-          // Whirled around the attacker: two full laps, stretched outwards by the spin.
+          // Whirled around the attacker: gol-gol spin tilted outward!
           .to(
             orbit,
             {
-              angle: TAU * 2,
+              angle: TAU * 2.5,
               duration: CAPTURE_TWIRL_DURATION,
               ease: 'power1.in',
               onUpdate: () => {
@@ -241,17 +259,26 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
             },
             0,
           )
-          .to(tilt.rotation, { y: TAU * 2, duration: CAPTURE_TWIRL_DURATION, ease: 'power1.in' }, 0)
-          .to(root.position, { y: TILE_SURFACE_Y + 0.3, duration: CAPTURE_TWIRL_DURATION, ease: 'power1.out' }, 0)
+          .to(tilt.rotation, { y: TAU * 2.5, z: 0.45, duration: CAPTURE_TWIRL_DURATION, ease: 'power1.in' }, 0)
+          .to(root.position, { y: TILE_SURFACE_Y + 0.35, duration: CAPTURE_TWIRL_DURATION, ease: 'power1.out' }, 0)
           .to(squash.scale, { ...STRETCH, duration: CAPTURE_TWIRL_DURATION }, 0)
-          // Released: a ballistic arc back to the yard, tumbling all the way.
+          // Fling back to yard with wild gol-gol & head-over-heels tumble.
           .to(root.position, { x: yard.x, z: yard.z, duration: CAPTURE_FLIGHT_DURATION, ease: 'none' }, launch)
           .to(root.position, { y: CAPTURE_APEX_Y, duration: halfFlight, ease: 'power2.out' }, launch)
           .to(root.position, { y: TILE_SURFACE_Y, duration: halfFlight, ease: 'power2.in' }, launch + halfFlight)
-          .to(tilt.rotation, { y: TAU * 5, duration: CAPTURE_FLIGHT_DURATION, ease: 'none' }, launch)
-          .to(root.scale, { x: 1, y: 1, z: 1, duration: 0.3 }, launch)
-          .set(tilt.rotation, { y: 0 });
-        land(timeline);
+          .to(tilt.rotation, { y: TAU * 7, z: TAU * 3, duration: CAPTURE_FLIGHT_DURATION, ease: 'none' }, launch)
+          .to(root.scale, { x: 1, y: 1, z: 1, duration: 0.24 }, launch)
+          .set(tilt.rotation, { x: 0, y: 0, z: 0 })
+          // Crash-land into a dizzy chakkar-kha-ke wobble!
+          .call(() => setCaptureMood('dizzy'), [], impactAt);
+        land(timeline, impactAt);
+        timeline
+          .to(
+            tilt.rotation,
+            { z: 0.25, duration: CAPTURE_DIZZY_DURATION * 0.18, ease: 'sine.inOut', yoyo: true, repeat: 4 },
+            impactAt + 0.05,
+          )
+          .to(tilt.rotation, { x: 0, z: 0, duration: 0.12, ease: 'power2.out' });
         break;
       }
 
@@ -263,9 +290,9 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
         // Settle straight onto the picnic blanket at small sitting scale (no dancing).
         timeline = gsap
           .timeline({ onComplete: done })
-          .to(root.scale, { x: HOME_PICNIC_SCALE, y: HOME_PICNIC_SCALE, z: HOME_PICNIC_SCALE, duration: 0.38, ease: 'power2.out' }, 0)
-          .to(squash.scale, { ...SQUASH, duration: 0.1, ease: 'power1.out' }, 0)
-          .to(squash.scale, { ...NEUTRAL, duration: 0.32, ease: 'elastic.out(1, 0.45)' }, 0.1);
+          .to(root.scale, { x: HOME_PICNIC_SCALE, y: HOME_PICNIC_SCALE, z: HOME_PICNIC_SCALE, duration: 0.3, ease: 'power2.out' }, 0)
+          .to(squash.scale, { ...SQUASH, duration: 0.08, ease: 'power1.out' }, 0)
+          .to(squash.scale, { ...NEUTRAL, duration: 0.25, ease: 'elastic.out(1, 0.45)' }, 0.08);
         break;
       }
 
@@ -279,15 +306,16 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
         const ease = 'power2.out';
         timeline = gsap
           .timeline({ onComplete: arriving ? done : undefined })
-          .to(root.position, { x, z, duration: 0.35, ease }, 0)
-          .to(root.scale, { x: scale, y: scale, z: scale, duration: 0.35, ease }, 0)
-          .to(root.rotation, { y: nearestAngle(root.rotation.y, placement.rotationY), duration: 0.35, ease }, 0);
+          .to(root.position, { x, z, duration: 0.28, ease }, 0)
+          .to(root.scale, { x: scale, y: scale, z: scale, duration: 0.28, ease }, 0)
+          .to(root.rotation, { y: nearestAngle(root.rotation.y, placement.rotationY), duration: 0.28, ease }, 0);
         break;
       }
     }
 
     return () => {
       timeline?.kill();
+      setCaptureMood('none');
     };
   }, [lastEvent, pawn.id, completeEvent]);
 
@@ -371,6 +399,8 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
             picnicActivity={picnicActivity}
             finalRank={validRank}
             isLastPlace={isLastPlace}
+            isLaughing={captureMood === 'laugh'}
+            isDizzy={captureMood === 'dizzy'}
           />
         </group>
       </group>

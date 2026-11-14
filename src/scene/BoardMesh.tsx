@@ -321,6 +321,11 @@ function HomeCentre() {
   const flameRightRef = useRef<THREE.Mesh>(null);
   const emberRef = useRef<THREE.Mesh>(null);
   const fireLightRef = useRef<THREE.PointLight>(null);
+  const radioRef = useRef<THREE.Group>(null);
+  const speakerLRef = useRef<THREE.Mesh>(null);
+  const speakerRRef = useRef<THREE.Mesh>(null);
+  const reelLRef = useRef<THREE.Group>(null);
+  const reelRRef = useRef<THREE.Group>(null);
 
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
@@ -342,6 +347,17 @@ function HomeCentre() {
     if (fireLightRef.current) {
       fireLightRef.current.intensity = 0.55 + Math.sin(t * 8.5) * 0.12;
     }
+    // Visual-only retro cassette radio groove (zero sound).
+    const beat = Math.pow(Math.abs(Math.sin(t * 7.2)), 2);
+    if (radioRef.current) {
+      radioRef.current.position.y = TILE_SURFACE_Y + 0.012 + beat * 0.016;
+      radioRef.current.scale.set(1 + beat * 0.04, 1 - beat * 0.045, 1 + beat * 0.04);
+      radioRef.current.rotation.z = Math.sin(t * 3.6) * 0.055;
+    }
+    if (speakerLRef.current) speakerLRef.current.scale.setScalar(1 + beat * 0.22);
+    if (speakerRRef.current) speakerRRef.current.scale.setScalar(1 + beat * 0.22);
+    if (reelLRef.current) reelLRef.current.rotation.z = -t * 4.5;
+    if (reelRRef.current) reelRRef.current.rotation.z = -t * 4.5;
   });
 
   return (
@@ -475,18 +491,84 @@ function HomeCentre() {
         </mesh>
       </group>
 
-      {/* 4. Cozy Snack Tray & Marshmallow Box (-X, +Z) */}
-      <group position={[-0.48, TILE_SURFACE_Y + 0.012, 0.48]} rotation-y={0.3}>
+      {/* 4. Cozy Snack Tray & Marshmallow Box beside basket (-X, -Z) */}
+      <group position={[-0.26, TILE_SURFACE_Y + 0.012, -0.56]} rotation-y={0.2}>
         <mesh position-y={0.02} castShadow>
-          <boxGeometry args={[0.16, 0.035, 0.11]} />
+          <boxGeometry args={[0.14, 0.032, 0.1]} />
           <meshStandardMaterial color="#ffb5c5" roughness={0.5} />
         </mesh>
-        {[-0.035, 0.035].map((ox, i) => (
-          <mesh key={i} position={[ox, 0.048, 0]} rotation-z={Math.PI / 2}>
-            <cylinderGeometry args={[0.02, 0.02, 0.035, 10]} />
+        {[-0.03, 0.03].map((ox, i) => (
+          <mesh key={i} position={[ox, 0.044, 0]} rotation-z={Math.PI / 2}>
+            <cylinderGeometry args={[0.018, 0.018, 0.032, 10]} />
             <meshStandardMaterial color="#ffffff" roughness={0.6} />
           </mesh>
         ))}
+      </group>
+
+      {/* 5. Animated Retro Cassette Radio (-X, +Z) — visual groove only, zero audio */}
+      <group ref={radioRef} position={[-0.46, TILE_SURFACE_Y + 0.012, 0.46]} rotation-y={0.65}>
+        {/* Boombox body */}
+        <mesh position-y={0.075} castShadow>
+          <boxGeometry args={[0.28, 0.14, 0.1]} />
+          <meshStandardMaterial color="#4ecdc4" roughness={0.45} />
+        </mesh>
+        {/* Top trim & carrying handle */}
+        <mesh position-y={0.148}>
+          <boxGeometry args={[0.26, 0.016, 0.09]} />
+          <meshStandardMaterial color="#ffe66d" roughness={0.4} />
+        </mesh>
+        <mesh position={[0, 0.155, 0]}>
+          <torusGeometry args={[0.055, 0.008, 6, 14, Math.PI]} />
+          <meshStandardMaterial color="#2b213a" roughness={0.5} />
+        </mesh>
+        {/* Slanted antenna */}
+        <mesh position={[-0.1, 0.21, -0.025]} rotation-z={0.22}>
+          <cylinderGeometry args={[0.004, 0.004, 0.14, 6]} />
+          <meshStandardMaterial color="#d8dee9" metalness={0.5} roughness={0.3} />
+        </mesh>
+        {/* Thumping left & right speaker grilles */}
+        <mesh ref={speakerLRef} position={[-0.088, 0.072, 0.052]} rotation-x={Math.PI / 2}>
+          <cylinderGeometry args={[0.036, 0.036, 0.01, 16]} />
+          <meshStandardMaterial color="#2b213a" roughness={0.55} />
+        </mesh>
+        <mesh ref={speakerRRef} position={[0.088, 0.072, 0.052]} rotation-x={Math.PI / 2}>
+          <cylinderGeometry args={[0.036, 0.036, 0.01, 16]} />
+          <meshStandardMaterial color="#2b213a" roughness={0.55} />
+        </mesh>
+        {/* Cassette deck window & spinning reels */}
+        <mesh position={[0, 0.068, 0.051]}>
+          <boxGeometry args={[0.085, 0.056, 0.008]} />
+          <meshStandardMaterial color="#fff8f0" roughness={0.35} />
+        </mesh>
+        <mesh position={[0, 0.068, 0.055]}>
+          <boxGeometry args={[0.064, 0.034, 0.004]} />
+          <meshStandardMaterial color="#3b2f4d" roughness={0.5} />
+        </mesh>
+        <group ref={reelLRef} position={[-0.017, 0.068, 0.058]}>
+          <mesh>
+            <ringGeometry args={[0.005, 0.012, 12]} />
+            <meshBasicMaterial color="#ffd166" />
+          </mesh>
+          <mesh>
+            <boxGeometry args={[0.02, 0.003, 0.002]} />
+            <meshBasicMaterial color="#ffffff" />
+          </mesh>
+        </group>
+        <group ref={reelRRef} position={[0.017, 0.068, 0.058]}>
+          <mesh>
+            <ringGeometry args={[0.005, 0.012, 12]} />
+            <meshBasicMaterial color="#ffd166" />
+          </mesh>
+          <mesh>
+            <boxGeometry args={[0.02, 0.003, 0.002]} />
+            <meshBasicMaterial color="#ffffff" />
+          </mesh>
+        </group>
+        {/* Glowing power / play indicator */}
+        <mesh position={[0, 0.116, 0.052]}>
+          <sphereGeometry args={[0.008, 8, 8]} />
+          <meshStandardMaterial color="#ff5d8f" emissive="#ff5d8f" emissiveIntensity={1.6} toneMapped={false} />
+        </mesh>
       </group>
     </group>
   );

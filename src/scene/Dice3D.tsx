@@ -19,7 +19,7 @@ import { createAnimeToonMaterial } from './shaders/animeToonMaterial';
 const SIZE = 1;
 const TAU = Math.PI * 2;
 const TOSS_HEIGHT = 1.25;
-const HIT_STOP = 0.06;
+const HIT_STOP = 0.048;
 
 /** Value painted on each box face, in BoxGeometry material order: +X, -X, +Y, -Y, +Z, -Z. */
 const FACE_VALUES = [2, 5, 1, 6, 3, 4];
@@ -168,8 +168,8 @@ function Die() {
       .to(group.position, { y: 0, duration: half, ease: 'power2.in' }, half)
       // Whole extra turns on every axis; the remainder leaves the rolled face on top.
       .to(cube.rotation, { x: faceX + TAU * 2, y: TAU, z: faceZ + TAU, duration: DICE_AIR_TIME, ease: 'power1.out' }, 0)
-      .to(cube.scale, { x: 1.18, y: 0.78, z: 1.18, duration: 0.05, ease: 'power1.out' }, DICE_AIR_TIME)
-      .to(cube.scale, { x: 1, y: 1, z: 1, duration: 0.18, ease: 'back.out(3)' }, DICE_AIR_TIME + 0.05);
+      .to(cube.scale, { x: 1.18, y: 0.78, z: 1.18, duration: 0.04, ease: 'power1.out' }, DICE_AIR_TIME)
+      .to(cube.scale, { x: 1, y: 1, z: 1, duration: 0.14, ease: 'back.out(3)' }, DICE_AIR_TIME + 0.04);
 
     if (activeRoll.value === 6) {
       timeline
@@ -178,8 +178,8 @@ function Die() {
           emitEffect({ type: 'sparkle', x: 0, z: 0, y: 1.6 });
           soundManager.playStarChime();
         })
-        .to(cube.scale, { x: 1.3, y: 1.3, z: 1.3, duration: 0.07, ease: 'power2.out' })
-        .to(cube.scale, { x: 1, y: 1, z: 1, duration: 0.2, ease: 'back.out(3)' });
+        .to(cube.scale, { x: 1.3, y: 1.3, z: 1.3, duration: 0.055, ease: 'power2.out' })
+        .to(cube.scale, { x: 1, y: 1, z: 1, duration: 0.16, ease: 'back.out(3)' });
     }
 
     return () => {

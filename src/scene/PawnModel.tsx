@@ -117,7 +117,7 @@ function GltfFigure({ url, team, clip }: { url: string; team: TeamId; clip: Pawn
   );
 }
 
-function ResolvedFigure({ team, slot, clip, holdingCup, isMovable, isHovered, isSitting, picnicActivity, finalRank, isLastPlace }: PawnModelProps) {
+function ResolvedFigure({ team, slot, clip, holdingCup, isMovable, isHovered, isSitting, picnicActivity, finalRank, isLastPlace, isLaughing, isDizzy }: PawnModelProps) {
   const url = use(resolveModelUrl(team, slot));
   return url ? (
     <GltfFigure url={url} team={team} clip={clip} />
@@ -132,6 +132,8 @@ function ResolvedFigure({ team, slot, clip, holdingCup, isMovable, isHovered, is
       picnicActivity={picnicActivity}
       finalRank={finalRank}
       isLastPlace={isLastPlace}
+      isLaughing={isLaughing}
+      isDizzy={isDizzy}
     />
   );
 }
@@ -149,6 +151,8 @@ interface PawnModelProps {
   picnicActivity?: PicnicActivity;
   finalRank?: number | null;
   isLastPlace?: boolean;
+  isLaughing?: boolean;
+  isDizzy?: boolean;
 }
 
 export function PawnModel(props: PawnModelProps) {
@@ -163,6 +167,8 @@ export function PawnModel(props: PawnModelProps) {
       picnicActivity={props.picnicActivity}
       finalRank={props.finalRank}
       isLastPlace={props.isLastPlace}
+      isLaughing={props.isLaughing}
+      isDizzy={props.isDizzy}
     />
   );
   return (

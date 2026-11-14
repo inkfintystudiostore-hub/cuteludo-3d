@@ -319,11 +319,11 @@ function buildEffect(request: EffectRequest, spawn: Spawn): void {
           }),
         );
       }
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 4; i++) {
         spawn(
           'star',
           particle(
-            { x, z, delay: delay + 0.1, y: 1.85, life: 1.5, size: 0.3, spin: 4, orbit: { cx: x, cz: z, radius: 0.4, angle: (i / 3) * TAU, speed: 6.5 } },
+            { x, z, delay: delay + 0.08, y: 1.45, life: 1.45, size: 0.28, spin: 4.5, orbit: { cx: x, cz: z, radius: 0.44, angle: (i / 4) * TAU, speed: 7 } },
             '#ffd166',
           ),
         );
@@ -421,6 +421,9 @@ export function AnimeEffects() {
       if (pawn.slot === 1) spots.push({ ...seat, kind: 'steam' });
       else if (pawn.slot === 3) spots.push({ ...seat, kind: 'picnicNote' });
     }
+    if (spots.length > 0 || pawns.some((p) => p.progress === HOME_PROGRESS)) {
+      spots.push({ x: -0.46, z: 0.46, kind: 'picnicNote' });
+    }
     return spots;
   }, [pawns]);
 
@@ -442,6 +445,7 @@ export function AnimeEffects() {
         const [tile, yard] = lastEvent.pathWaypoints;
         emitEffect({ type: 'bang', x: tile.x, z: tile.z });
         emitEffect({ type: 'speedRing', x: tile.x, z: tile.z });
+        emitEffect({ type: 'sparkle', x: tile.x, z: tile.z, y: 1.25, delay: CAPTURE_TWIRL_DURATION + 0.14 });
         emitEffect({ type: 'dustLanding', x: yard.x, z: yard.z, delay: CAPTURE_TWIRL_DURATION + CAPTURE_FLIGHT_DURATION });
         break;
       }
@@ -489,7 +493,7 @@ export function AnimeEffects() {
     }
 
     picnicClock.current += dt;
-    if (picnicClock.current >= 1.15) {
+    if (picnicClock.current >= 0.85) {
       picnicClock.current = 0;
       if (picnicSpots.length > 0) {
         const spot = picnicSpots[Math.floor(Math.random() * picnicSpots.length)];

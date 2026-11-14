@@ -30,8 +30,8 @@ body {
 .hud-grid {
   display: grid;
   height: 100%;
-  gap: 0.5rem 0.75rem;
-  padding: max(0.5rem, env(safe-area-inset-top)) 0.6rem max(0.6rem, env(safe-area-inset-bottom));
+  gap: 0.25rem 0.4rem;
+  padding: max(0.25rem, env(safe-area-inset-top)) 0.25rem max(0.35rem, env(safe-area-inset-bottom));
   grid-template-columns: 1fr 1fr;
   grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   grid-template-areas:
@@ -42,10 +42,17 @@ body {
     'dock dock';
 }
 
+@media (min-width: 640px) {
+  .hud-grid {
+    gap: 0.5rem 0.75rem;
+    padding: max(0.5rem, env(safe-area-inset-top)) 0.6rem max(0.6rem, env(safe-area-inset-bottom));
+  }
+}
+
 @media (orientation: landscape) {
   .hud-grid {
-    --side-left: clamp(8.75rem, 14vw, 11.25rem);
-    --side-right: clamp(9.5rem, 17vw, 13rem);
+    --side-left: clamp(7.25rem, 12vw, 10.75rem);
+    --side-right: clamp(8rem, 14.5vw, 12.25rem);
     grid-template-columns: var(--side-left) minmax(0, 1fr) var(--side-right);
     grid-template-rows: auto auto minmax(0, 1fr) auto;
     grid-template-areas:

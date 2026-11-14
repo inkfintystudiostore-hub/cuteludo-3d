@@ -125,9 +125,9 @@ export interface GameStore {
   resetGame: () => void;
 }
 
-const NO_MOVE_DISPLAY_MS = 600;
-const NO_MOVE_SIMULATION_MS = 120;
-const AUTO_MOVE_DELAY_MS = 260;
+const NO_MOVE_DISPLAY_MS = 480;
+const NO_MOVE_SIMULATION_MS = 100;
+const AUTO_MOVE_DELAY_MS = 200;
 const LOG_LIMIT = 40;
 let nextEventId = 1;
 let passTimer: ReturnType<typeof setTimeout> | undefined;
