@@ -22,7 +22,16 @@ import {
 } from './ludoRules';
 import { useGameStore } from './gameStore';
 import { buildRoomShareUrl, formatRoomCode, generateRoomCode, parseRoomCodeInput } from './roomCode';
-import { createRoomRecord, disconnectPlayer, handleRoomAction, joinRoom, snapshotForPlayer } from '../../worker/roomLogic';
+import {
+  ROOM_IDLE_TTL_MS,
+  createRoomRecord,
+  disconnectPlayer,
+  handleRoomAction,
+  isRoomCodeOccupied,
+  isRoomExpired,
+  joinRoom,
+  snapshotForPlayer,
+} from '../../worker/roomLogic';
 
 const place = (state: GameState, positions: Record<string, number>): GameState => ({
   ...state,
@@ -382,5 +391,13 @@ describe('multiplayer roomLogic', () => {
     expect(room.seats.find((s) => s.team === 'CYAN')?.connected).toBe(false);
     room = joinRoom(room, 'guest-2');
     expect(room.seats.find((s) => s.team === 'CYAN')?.connected).toBe(true);
+
+    // Room occupancy & idle TTL expiration checks for unique room code allocation.
+    const now = 1_700_000_000_000;
+    const touched = { ...room, lastActiveAt: now };
+    expect(isRoomExpired(touched, now + 1000)).toBe(false);
+    expect(isRoomCodeOccupied(touched, now + 1000)).toBe(true);
+    expect(isRoomExpired(touched, now + ROOM_IDLE_TTL_MS + 1)).toBe(true);
+    expect(isRoomCodeOccupied(touched, now + ROOM_IDLE_TTL_MS + 1)).toBe(false);
   });
 });

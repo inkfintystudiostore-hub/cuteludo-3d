@@ -41,10 +41,36 @@ export function parseRoomCodeInput(raw: string): string | null {
   return /^\d{9}$/.test(digitsOnly) ? digitsOnly : null;
 }
 
-/** Resolves the public base URL used for invite links (supports VITE_PUBLIC_APP_URL & subpaths). */
+const TRUSTED_EMBED_ORIGINS = new Set([
+  'https://inkfinitystudio.store',
+  'https://www.inkfinitystudio.store',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+]);
+
+/** Returns validated parent page URL when embedded inside a trusted host iframe (e.g. inkfinitystudio.store/game-room). */
+export function resolveEmbeddedParentUrl(): { baseUrl: string; origin: string } | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('parentUrl')?.trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (!TRUSTED_EMBED_ORIGINS.has(parsed.origin)) return null;
+    const cleanPath = parsed.pathname && parsed.pathname !== '/' ? parsed.pathname.replace(/\/+$/, '') : '';
+    return { baseUrl: `${parsed.origin}${cleanPath}`, origin: parsed.origin };
+  } catch {
+    return null;
+  }
+}
+
+/** Resolves the public base URL used for invite links (supports VITE_PUBLIC_APP_URL, iframe parent, & subpaths). */
 export function resolveShareBaseUrl(): string {
   const configured = (import.meta.env?.VITE_PUBLIC_APP_URL as string | undefined)?.trim();
   if (configured) return configured.replace(/\/+$/, '');
+  const embeddedParent = resolveEmbeddedParentUrl();
+  if (embeddedParent) return embeddedParent.baseUrl;
   if (typeof window !== 'undefined') {
     const path = window.location.pathname && window.location.pathname !== '/'
       ? window.location.pathname.replace(/\/+$/, '')

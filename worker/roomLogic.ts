@@ -7,6 +7,8 @@ import { TEAM_LABELS, type TeamId } from '../src/engine/boardMap';
 import { applyMove, applyRoll, createGame, rollDie, type GameMode, type GameState } from '../src/engine/ludoRules';
 import type { ClientMessage, RoomSnapshot, SeatInfo, ServerMessage } from '../src/engine/multiplayerProtocol';
 
+export const ROOM_IDLE_TTL_MS = 6 * 60 * 60 * 1000;
+
 export interface RoomRecord {
   code: string;
   mode: GameMode;
@@ -15,6 +17,17 @@ export interface RoomRecord {
   seats: SeatInfo[];
   game: GameState;
   legalMoves: string[];
+  lastActiveAt?: number;
+}
+
+export function isRoomExpired(record: RoomRecord | null, now = Date.now()): boolean {
+  if (!record || !record.lastActiveAt) return false;
+  return now - record.lastActiveAt > ROOM_IDLE_TTL_MS;
+}
+
+export function isRoomCodeOccupied(record: RoomRecord | null, now = Date.now()): boolean {
+  if (!record || isRoomExpired(record, now)) return false;
+  return true;
 }
 
 function makeSeats(mode: GameMode, existingHumanIds: string[] = []): SeatInfo[] {

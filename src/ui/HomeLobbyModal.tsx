@@ -10,10 +10,12 @@ import type { GameMode } from '../engine/ludoRules';
 import {
   connectMultiplayerRoom,
   disconnectMultiplayerRoom,
+  notifyParentRoomCode,
+  reserveUniqueRoomCode,
   sendRoomMode,
   sendRoomStart,
 } from '../engine/multiplayerClient';
-import { buildRoomShareUrl, formatRoomCode, generateRoomCode, parseRoomCodeInput, resolveShareBaseUrl } from '../engine/roomCode';
+import { buildRoomShareUrl, formatRoomCode, parseRoomCodeInput, resolveShareBaseUrl } from '../engine/roomCode';
 import { BotIcon, CheckIcon, CopyIcon, LinkIcon, MascotIcon, PlayIcon, UsersIcon } from './Icons';
 
 type LobbyTab = 'local' | 'friends';
@@ -50,6 +52,7 @@ export function HomeLobbyModal() {
   const [localStyle, setLocalStyle] = useState<LocalPlayStyle>('ai');
 
   const [createdCode, setCreatedCode] = useState<string | null>(null);
+  const [reservingRoom, setReservingRoom] = useState(false);
   const [joinInput, setJoinInput] = useState<string>(() => {
     const urlCode = readInitialRoomFromUrl();
     return urlCode ? formatRoomCode(urlCode) : '';
@@ -98,11 +101,17 @@ export function HomeLobbyModal() {
     });
   };
 
-  const handleCreateRoom = () => {
-    const code = generateRoomCode();
-    setCreatedCode(code);
+  const handleCreateRoom = async () => {
+    if (reservingRoom) return;
+    setReservingRoom(true);
     setJoinError(null);
-    connectMultiplayerRoom(code, 'host', format);
+    try {
+      const code = await reserveUniqueRoomCode(format);
+      setCreatedCode(code);
+      connectMultiplayerRoom(code, 'host', format);
+    } finally {
+      setReservingRoom(false);
+    }
   };
 
   const handleStartHostedRoom = () => {
@@ -131,6 +140,7 @@ export function HomeLobbyModal() {
 
   const handleLeaveLobbyRoom = () => {
     disconnectMultiplayerRoom();
+    notifyParentRoomCode(null);
     setCreatedCode(null);
     useGameStore.setState({ room: null });
   };
@@ -369,10 +379,11 @@ export function HomeLobbyModal() {
               {!createdCode ? (
                 <button
                   type="button"
+                  disabled={reservingRoom}
                   onClick={handleCreateRoom}
-                  className={`min-h-9 w-full rounded-xl bg-[#ffd875] px-3 text-sm font-bold uppercase ${INK_BTN}`}
+                  className={`min-h-9 w-full rounded-xl bg-[#ffd875] px-3 text-sm font-bold uppercase disabled:opacity-60 ${INK_BTN}`}
                 >
-                  Generate Room Code
+                  {reservingRoom ? 'Reserving…' : 'Generate Room Code'}
                 </button>
               ) : (
                 <button

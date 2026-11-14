@@ -6,10 +6,44 @@ import { emitEffect } from '../scene/effects/AnimeEffects';
 import { registerRoomTransport, useGameStore } from './gameStore';
 import type { GameMode } from './ludoRules';
 import type { ClientMessage, RoomEmoteId, ServerMessage } from './multiplayerProtocol';
+import { generateRoomCode, resolveEmbeddedParentUrl } from './roomCode';
 
 let socket: WebSocket | null = null;
 let activeCode: string | null = null;
 let intentionalClose = false;
+
+export function notifyParentRoomCode(code: string | null): void {
+  if (typeof window === 'undefined' || window.parent === window) return;
+  const parent = resolveEmbeddedParentUrl();
+  if (!parent) return;
+  try {
+    window.parent.postMessage({ type: 'chibi-ludo:room', code }, parent.origin);
+  } catch {
+    // Ignore cross-origin frame messaging restrictions.
+  }
+}
+
+/** Requests a server-verified unused 9-digit room code; falls back locally when offline. */
+export async function reserveUniqueRoomCode(mode: GameMode): Promise<string> {
+  try {
+    const httpOrigin =
+      typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:8787';
+    const res = await fetch(`${httpOrigin}/api/rooms/reserve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { ok?: boolean; code?: string };
+      if (data.ok && data.code && /^\d{9}$/.test(data.code)) {
+        return data.code;
+      }
+    }
+  } catch {
+    // Offline local preview without Wrangler worker.
+  }
+  return generateRoomCode();
+}
 
 function getPlayerId(): string {
   const key = 'chibi-ludo-pid';
@@ -58,6 +92,7 @@ export function connectMultiplayerRoom(code: string, role: 'host' | 'guest', mod
   disconnectMultiplayerRoom();
   intentionalClose = false;
   activeCode = code;
+  notifyParentRoomCode(code);
 
   const store = useGameStore.getState();
   store.initRoomSession({ code, role, online: false, status: 'connecting', statusNote: 'Connecting to live server…' });
