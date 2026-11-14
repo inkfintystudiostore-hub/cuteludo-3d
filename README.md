@@ -50,32 +50,26 @@ Every push to `main` runs `npm test` + `npm run build` via [`.github/workflows/d
 
 ---
 
-## Integrating into Inkfinity Studio (`infinitystudio.store`)
+## Integrating into Inkfinity Studio (`inkfinitystudio.store`)
 
-Because this game runs real-time stateful **WebSockets + Durable Objects**, the cleanest way to include it on `infinitystudio.store` (at `$0/mo` with zero bloat to your main storefront bundle) is:
+Because this game runs real-time stateful **WebSockets + Durable Objects**, the cleanest way to include it on `inkfinitystudio.store` (at `$0/mo` with zero bloat to your main storefront bundle) is:
 
-### 1. Attach a Subdomain in Cloudflare (Recommended)
-1. In Cloudflare Dashboard -> Worker `chibi-ludo-3d` -> **Settings -> Domains & Routes -> Add -> Custom Domain**: add `ludo.infinitystudio.store` (or `ludo.inkfintystudio.store`).
-2. Link to it directly from your Inkfinity Studio navigation bar, **or** embed it inside an `/ludo` page on your site:
+### 1. Embed Inside `/game-room` on `inkfinitystudio.store`
+Forward both `parentUrl` and `?room=` from `window.location.search` into the iframe `src` so "Copy Invite Link" generates `https://inkfinitystudio.store/game-room?room=XXXXXXXXX` and opening that link auto-joins the exact same room:
 
 ```html
 <iframe
-  src="https://ludo.infinitystudio.store/"
+  id="ludo-frame"
   title="Inkfinity Studio — Chibi Ludo 3D"
   style="width: 100%; height: 100dvh; border: 0; border-radius: 16px;"
   allow="clipboard-write"
 ></iframe>
-```
-
-### 2. Optional Invite-Link Forwarding Inside Inkfinity Studio
-If you embed Ludo inside `https://infinitystudio.store/ludo` and want copied friend invite links to point to `https://infinitystudio.store/ludo?room=XXXXXXXXX`:
-1. Set `VITE_PUBLIC_APP_URL=https://infinitystudio.store/ludo` during build (in `.env` or CI variables).
-2. On your `/ludo` wrapper page, forward `?room=` from `window.location.search` into the iframe `src`:
-
-```js
-const params = new URLSearchParams(window.location.search);
-const room = params.get('room');
-iframe.src = room
-  ? `https://ludo.infinitystudio.store/?room=${encodeURIComponent(room)}`
-  : 'https://ludo.infinitystudio.store/';
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const room = params.get('room');
+  const iframeSrc = new URL('https://chibi-ludo-3d.inkfintystudio-store.workers.dev/');
+  iframeSrc.searchParams.set('parentUrl', `${window.location.origin}${window.location.pathname}`);
+  if (room) iframeSrc.searchParams.set('room', room);
+  document.getElementById('ludo-frame').src = iframeSrc.toString();
+</script>
 ```
