@@ -47,11 +47,11 @@ function CameraRig() {
     const aspect = width / height;
     const isNarrow = width < 640 || aspect < 0.95;
     const isCompact = isNarrow || height < 540;
-    const fov = isNarrow ? 39 : FOV;
-    const elevation = isNarrow ? THREE.MathUtils.degToRad(52) : ELEVATION;
-    // WoodBase outer edge spans 8.5 units; keep >= 8.6 radius so corner yards never clip.
-    const radius = isNarrow ? 8.6 : BOARD_RADIUS;
-    const headroom = isCompact ? 0.55 : HEADROOM;
+    const fov = isNarrow ? 42.5 : FOV;
+    const elevation = isNarrow ? THREE.MathUtils.degToRad(56) : ELEVATION;
+    // WoodBase outer edge spans 8.5 units; keep >= 8.55 radius so corner yards never clip.
+    const radius = isNarrow ? 8.55 : BOARD_RADIUS;
+    const headroom = isCompact ? 0.45 : HEADROOM;
     const tanHalf = Math.tan(THREE.MathUtils.degToRad(fov / 2));
     const nearEdge = radius * Math.cos(elevation);
     const fitHeight = (radius * Math.sin(elevation) + headroom) / tanHalf + nearEdge;

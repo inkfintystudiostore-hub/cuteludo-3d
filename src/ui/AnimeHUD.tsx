@@ -450,7 +450,7 @@ function StatusBadge({ team }: { team: TeamId }) {
         {rank !== null ? (
           <span
             aria-hidden
-            className={`absolute -top-3 -right-2 rotate-6 rounded-md border-2 border-ink px-1.5 py-0.5 text-[11px] font-bold tracking-wider uppercase ${
+            className={`absolute -top-2.5 -right-1.5 rotate-6 rounded-md border-2 border-ink px-1.5 py-0.5 text-[10px] sm:text-[11px] font-bold tracking-wider uppercase ${
               rank === 1 ? 'bg-[#ffd875] text-ink' : rank === totalTeams && totalTeams > 1 ? 'bg-[#ff8fab] text-ink' : 'bg-[#e8eef5] text-ink'
             }`}
           >
@@ -458,7 +458,7 @@ function StatusBadge({ team }: { team: TeamId }) {
           </span>
         ) : (
           isTurn && (
-            <span aria-hidden className="absolute -top-3 -right-2 rotate-6 rounded-md bg-ink px-1.5 py-0.5 text-xs font-bold tracking-wider text-white uppercase">
+            <span aria-hidden className="absolute -top-2.5 -right-1.5 rotate-6 rounded-md bg-ink px-1.5 py-0.5 text-[10px] sm:text-xs font-bold tracking-wider text-white uppercase">
               Turn
             </span>
           )
@@ -525,7 +525,7 @@ function EmoteBar() {
             playEmoteVideo(id);
             sendEmote(id);
           }}
-          className="size-9 cursor-pointer overflow-hidden rounded-xl border-2 border-ink bg-[#2b213a] p-0 shadow-ink-sm transition-transform hover:-translate-y-0.5 active:scale-95 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ink sm:size-10 landscape:size-8"
+          className="size-9 cursor-pointer overflow-hidden rounded-xl border-2 border-ink bg-[#2b213a] p-0 shadow-ink-sm transition-transform hover:-translate-y-0.5 active:scale-95 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ink sm:size-10 landscape:size-7 [@media(orientation:landscape)_and_(max-height:500px)]:size-6"
         >
           <video src={src} autoPlay loop muted playsInline preload="auto" aria-hidden className="pointer-events-none size-full object-cover" />
         </button>
@@ -567,7 +567,7 @@ function DialogueDock() {
     <section
       aria-label="Turn controls"
       style={{ gridArea: 'dock' }}
-      className={`relative flex items-stretch gap-2 sm:gap-3 rounded-xl sm:rounded-2xl bg-white p-1.5 pt-3.5 sm:p-2.5 sm:pt-5 landscape:flex-col landscape:gap-2 landscape:self-center ${INK_BOX}`}
+      className={`relative mt-3 sm:mt-3.5 landscape:mt-4 flex items-stretch gap-2 sm:gap-3 rounded-xl sm:rounded-2xl bg-white p-1.5 pt-3.5 sm:p-2.5 sm:pt-5 landscape:flex-col landscape:gap-1.5 landscape:self-center [@media(orientation:landscape)_and_(max-height:500px)]:mt-4 [@media(orientation:landscape)_and_(max-height:500px)]:gap-1 [@media(orientation:landscape)_and_(max-height:500px)]:p-1.5 [@media(orientation:landscape)_and_(max-height:500px)]:pt-3 ${INK_BOX}`}
     >
       <span
         className="absolute -top-3.5 sm:-top-4 left-2.5 sm:left-3 -skew-x-6 rounded-md border-2 sm:border-[3px] border-ink px-2 sm:px-2.5 py-0.5 text-xs sm:text-sm font-bold tracking-wider whitespace-nowrap uppercase shadow-ink-sm"
@@ -589,9 +589,9 @@ function DialogueDock() {
       >
         <HistoryIcon className="size-3.5" />
       </button>
-      <DiceTray className="aspect-square w-20 shrink-0 sm:w-28 landscape:mx-auto landscape:w-full landscape:max-w-32" />
-      <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5 sm:gap-2">
-        <p aria-live="polite" className="min-h-6 sm:min-h-9 text-xs sm:text-sm leading-tight sm:leading-snug font-semibold">
+      <DiceTray className="aspect-square w-20 shrink-0 sm:w-28 landscape:mx-auto landscape:w-full landscape:max-w-28 [@media(orientation:landscape)_and_(max-height:500px)]:max-w-16" />
+      <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5 sm:gap-2 [@media(orientation:landscape)_and_(max-height:500px)]:gap-1">
+        <p aria-live="polite" className="min-h-6 sm:min-h-9 [@media(orientation:landscape)_and_(max-height:500px)]:min-h-0 text-xs sm:text-sm leading-tight sm:leading-snug font-semibold">
           {isBotTurn ? `${TEAM_LABELS[team]} AI is thinking…` : notice}
         </p>
         <QuickPawnChips />

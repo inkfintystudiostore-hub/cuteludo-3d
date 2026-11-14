@@ -21,22 +21,14 @@ export type PawnClip = 'Idle' | 'Hop' | 'SipCoffee' | 'Picnic';
 const MODEL_HEIGHT = 1.55 * 0.95;
 const CROSSFADE = 0.25;
 
-const availability = new Map<string, Promise<boolean>>();
+const STATIC_MODEL_PATHS = new Set(
+  Object.keys(import.meta.glob('/public/models/*.glb')).map((p) => p.replace(/^\/public/, '')),
+);
 const resolvedUrls = new Map<string, Promise<string | null>>();
 
-/**
- * Asks the server whether a model file exists before handing the URL to the GLTF loader.
- * Dev servers answer unknown paths with the HTML app shell, so the content type is checked too.
- */
+/** Checks build-indexed custom `.glb` assets in `/public/models` without firing noisy 404 HEAD requests. */
 function modelExists(url: string): Promise<boolean> {
-  let check = availability.get(url);
-  if (!check) {
-    check = fetch(url, { method: 'HEAD' })
-      .then((response) => response.ok && !(response.headers.get('content-type') ?? '').includes('text/html'))
-      .catch(() => false);
-    availability.set(url, check);
-  }
-  return check;
+  return Promise.resolve(STATIC_MODEL_PATHS.has(url));
 }
 
 /** Resolves the highest-priority custom GLB available for (team, slot), or null for procedural fallback. */

@@ -738,4 +738,57 @@ describe('multiplayer roomLogic', () => {
     const thirdTry = joinRoom(earlyRoom, 'stranger-3', 'Other', t0 + 4000);
     expect(thirdTry.seats.some((s) => s.playerId === 'stranger-3')).toBe(false);
   });
+
+  it('simulates multi-turn 2-human + 2-bot multiplayer lockstep and recovers cleanly from dropped events', () => {
+    vi.useFakeTimers();
+    let room = createRoomRecord('445566778', '4P_FFA');
+    room = joinRoom(room, 'host-mobile', 'Aman');
+    room = joinRoom(room, 'guest-mobile', 'Priya');
+    room = handleRoomAction(room, 'host-mobile', { type: 'start', mode: '4P_FFA' }).record;
+
+    const store = useGameStore.getState();
+    store.syncRoomSnapshot(snapshotForPlayer(room, 'guest-mobile'));
+    expect(useGameStore.getState().screen).toBe('playing');
+    expect(useGameStore.getState().room?.myTeam).toBe('CYAN');
+
+    // Simulate 16 alternating server turns (humans + bots), including one forced watchdog recovery.
+    for (let step = 0; step < 16; step++) {
+      const currentTeam = room.game.currentTeam;
+      const seat = room.seats.find((s) => s.team === currentTeam)!;
+      const actorId = seat.occupant === 'human' ? seat.playerId! : room.hostId;
+      const rollAction = handleRoomAction(room, actorId, { type: 'roll' }, () => 0.99);
+      room = rollAction.record;
+      const rollMsg = rollAction.broadcast[0];
+      if (rollMsg?.type === 'roll') {
+        store.playRemoteRoll(rollMsg.value);
+        // Advance watchdog timer instead of manual completeRoll on odd turns to simulate throttled mobile WebGL.
+        if (step % 2 === 1) {
+          vi.advanceTimersByTime(2000);
+        } else {
+          const activeRoll = useGameStore.getState().activeRoll;
+          if (activeRoll) store.completeRoll(activeRoll.id);
+        }
+        vi.advanceTimersByTime(700);
+      }
+
+      if (room.game.phase === 'MOVE' && room.legalMoves.length > 0) {
+        const chosen = room.legalMoves[0];
+        const moveAction = handleRoomAction(room, actorId, { type: 'move', pawnId: chosen });
+        room = moveAction.record;
+        store.playRemoteMove(chosen);
+        while (useGameStore.getState().lastEvent) {
+          vi.advanceTimersByTime(4000);
+        }
+      }
+      expect(useGameStore.getState().isAnimating).toBe(false);
+    }
+
+    // Even if client falls out of sync (e.g. missed WS frame), snapshot resync aligns exact board state.
+    const staleBefore = useGameStore.getState().game;
+    useGameStore.setState({ isAnimating: false, activeRoll: null, lastEvent: null, game: createGame('4P_FFA') });
+    store.syncRoomSnapshot(snapshotForPlayer(room, 'guest-mobile'));
+    expect(useGameStore.getState().game.currentTeam).toBe(room.game.currentTeam);
+    expect(useGameStore.getState().game.phase).toBe(room.game.phase);
+    expect(useGameStore.getState().game.pawns).toEqual(staleBefore.pawns);
+  });
 });
