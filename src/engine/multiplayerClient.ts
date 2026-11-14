@@ -4,6 +4,7 @@
  */
 import { registerRoomTransport, useGameStore } from './gameStore';
 import type { GameMode } from './ludoRules';
+import type { TeamId } from './boardMap';
 import type { ClientMessage, RoomEmoteId, ServerMessage } from './multiplayerProtocol';
 import { generateRoomCode, resolveEmbeddedParentUrl } from './roomCode';
 
@@ -135,6 +136,7 @@ export function connectMultiplayerRoom(code: string, role: 'host' | 'guest', mod
     move: (pawnId) => send({ type: 'move', pawnId }),
     reset: () => send({ type: 'reset' }),
     emote: (emote: RoomEmoteId) => send({ type: 'emote', emote }),
+    chat: (text: string) => send({ type: 'chat', text }),
     disconnect: disconnectMultiplayerRoom,
   });
 
@@ -166,6 +168,9 @@ export function connectMultiplayerRoom(code: string, role: 'host' | 'guest', mod
       case 'reset':
         state.syncRemoteReset(data.mode);
         break;
+      case 'chat':
+        state.pushChatMessage(data.chat);
+        break;
       case 'emote': {
         const team = data.fromTeam ?? state.room?.myTeam ?? state.game.currentTeam;
         const existing = state.yardEmotes[team];
@@ -176,7 +181,7 @@ export function connectMultiplayerRoom(code: string, role: 'host' | 'guest', mod
         break;
       }
       case 'error':
-        useGameStore.setState({ notice: data.message });
+        useGameStore.setState({ notice: data.message, roomAlert: data.message });
         break;
     }
   });
@@ -200,6 +205,11 @@ export function sendRoomMode(mode: GameMode): void {
 export function sendRoomName(name: string): void {
   savePlayerDisplayName(name);
   send({ type: 'set_name', name: name.trim().slice(0, 18) });
+}
+
+export function sendRoomSelectTeam(team: TeamId): void {
+  useGameStore.getState().setRoomAlert(null);
+  send({ type: 'select_team', team });
 }
 
 export function sendRoomStart(mode: GameMode): void {

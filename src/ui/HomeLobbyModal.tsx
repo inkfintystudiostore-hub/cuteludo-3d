@@ -17,10 +17,12 @@ import {
   savePlayerDisplayName,
   sendRoomMode,
   sendRoomName,
+  sendRoomSelectTeam,
   sendRoomStart,
 } from '../engine/multiplayerClient';
 import { buildRoomShareUrl, formatRoomCode, parseRoomCodeInput, resolveShareBaseUrl } from '../engine/roomCode';
 import { BotIcon, CheckIcon, CopyIcon, LinkIcon, MascotIcon, PlayIcon, UsersIcon } from './Icons';
+import { RoomChatBox } from './RoomChatBox';
 
 type LobbyTab = 'local' | 'friends';
 type LocalPlayStyle = 'ai' | 'pass' | 'sim';
@@ -52,11 +54,13 @@ function RoomSeatsRoster({
   activeTeams,
   myTeam,
   hostFallbackName,
+  onSelectTeam,
 }: {
   seats?: SeatInfo[];
   activeTeams: TeamId[];
   myTeam: TeamId | null;
   hostFallbackName?: string;
+  onSelectTeam?: (team: TeamId) => void;
 }) {
   const effectiveSeats: SeatInfo[] =
     seats && seats.length > 0
@@ -75,12 +79,23 @@ function RoomSeatsRoster({
       {effectiveSeats.map((seat) => {
         const joined = seat.occupant === 'human';
         const isMe = myTeam === seat.team;
+        const canClaim = Boolean(onSelectTeam && !joined);
         return (
-          <div
+          <button
             key={seat.team}
-            className={`flex items-center gap-1.5 rounded-xl border-2 px-2 py-1.5 text-[11px] font-bold ${
-              joined ? 'border-ink bg-[#fff8f0]' : 'border-dashed border-ink/30 bg-[#fff8f5] text-ink/55'
-            }`}
+            type="button"
+            disabled={!canClaim}
+            onClick={() => canClaim && onSelectTeam?.(seat.team)}
+            title={canClaim ? `Choose ${TEAM_LABELS[seat.team]}` : isMe ? 'Your selected color' : `${TEAM_LABELS[seat.team]} taken`}
+            className={`flex items-center gap-1.5 rounded-xl border-2 px-2 py-1.5 text-left text-[11px] font-bold transition-transform ${
+              isMe
+                ? 'border-ink bg-[#fff8f0] ring-2 ring-ink/25'
+                : joined
+                  ? 'border-ink bg-[#fff8f0]'
+                  : canClaim
+                    ? 'cursor-pointer border-dashed border-ink/60 bg-[#fff8f5] text-ink hover:-translate-y-0.5 hover:border-solid hover:bg-white'
+                    : 'border-dashed border-ink/30 bg-[#fff8f5] text-ink/55'
+            } disabled:cursor-default`}
           >
             <span
               className="grid size-5 shrink-0 place-items-center rounded-md border border-ink"
@@ -90,7 +105,7 @@ function RoomSeatsRoster({
             </span>
             <div className="min-w-0 flex-1 leading-tight">
               <div className="flex items-center gap-1">
-                <span className="truncate">{joined ? seat.label : 'Waiting…'}</span>
+                <span className="truncate">{joined ? seat.label : canClaim ? `Pick ${TEAM_LABELS[seat.team]}` : 'Waiting…'}</span>
               </div>
               <div className="flex items-center gap-1 text-[9px] font-semibold uppercase">
                 <span>{TEAM_LABELS[seat.team]}</span>
@@ -98,7 +113,7 @@ function RoomSeatsRoster({
                 {joined && seat.connected && <span className="size-1.5 rounded-full bg-[#2b9348]" title="Online" />}
               </div>
             </div>
-          </div>
+          </button>
         );
       })}
     </div>
@@ -108,6 +123,7 @@ function RoomSeatsRoster({
 export function HomeLobbyModal() {
   const screen = useGameStore((s) => s.screen);
   const room = useGameStore((s) => s.room);
+  const roomAlert = useGameStore((s) => s.roomAlert);
   const startMatch = useGameStore((s) => s.startMatch);
 
   const [tab, setTab] = useState<LobbyTab>(() => (readInitialRoomFromUrl() ? 'friends' : 'local'));
@@ -410,7 +426,7 @@ export function HomeLobbyModal() {
 
             <div className="flex flex-col gap-1">
               <div className="flex items-center justify-between text-[11px] font-bold tracking-wider text-ink/70 uppercase">
-                <span>Joined Players</span>
+                <span>Pick Your Color (First-Come, First-Served)</span>
                 <span>
                   {joinedHumanCount} / {activeTeams.length} Ready
                 </span>
@@ -420,8 +436,16 @@ export function HomeLobbyModal() {
                 activeTeams={activeTeams}
                 myTeam={room?.myTeam ?? activeTeams[0]}
                 hostFallbackName={playerName.trim()}
+                onSelectTeam={room?.online ? sendRoomSelectTeam : undefined}
               />
+              {roomAlert && (
+                <p role="alert" className="text-[11px] font-bold text-[#d90429]">
+                  {roomAlert}
+                </p>
+              )}
             </div>
+
+            {room?.online && <RoomChatBox compact />}
 
             <button
               type="button"
@@ -471,7 +495,19 @@ export function HomeLobbyModal() {
               />
             </div>
 
-            <RoomSeatsRoster seats={room.seats} activeTeams={activeTeams} myTeam={room.myTeam} />
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-bold tracking-wider text-ink/70 uppercase">
+                Tap any open color to switch
+              </span>
+              <RoomSeatsRoster seats={room.seats} activeTeams={activeTeams} myTeam={room.myTeam} onSelectTeam={sendRoomSelectTeam} />
+              {roomAlert && (
+                <p role="alert" className="text-[11px] font-bold text-[#d90429]">
+                  {roomAlert}
+                </p>
+              )}
+            </div>
+
+            <RoomChatBox compact />
 
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-ink/75">Waiting for host to launch the match…</span>

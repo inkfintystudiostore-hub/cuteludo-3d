@@ -315,3 +315,25 @@ export function getPawnWorldPosition(
     sharedState: friendly ? 'coffee' : 'squabble',
   };
 }
+
+export type CornerSlot = 'bl' | 'tl' | 'tr' | 'br';
+
+const BOARD_YAW_TO_BL: Record<TeamId, number> = {
+  MINT: 0,
+  PINK: Math.PI / 2,
+  CYAN: Math.PI,
+  YELLOW: -Math.PI / 2,
+};
+
+const CORNER_CLOCKWISE: readonly CornerSlot[] = ['bl', 'tl', 'tr', 'br'];
+
+/** Board Y-rotation (radians) that brings `team`'s Home Yard closest to the camera (bottom-left). */
+export function getBoardYawForTeam(team: TeamId): number {
+  return BOARD_YAW_TO_BL[team];
+}
+
+/** Maps any team to its matching screen corner slot when `anchorTeam` sits at bottom-left. */
+export function getCornerSlotForTeam(team: TeamId, anchorTeam: TeamId): CornerSlot {
+  const offset = (TEAM_IDS.indexOf(team) - TEAM_IDS.indexOf(anchorTeam) + TEAM_IDS.length) % TEAM_IDS.length;
+  return CORNER_CLOCKWISE[offset];
+}

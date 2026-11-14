@@ -35,12 +35,18 @@ export function isRoomCodeOccupied(record: RoomRecord | null, now = Date.now()):
 interface JoinedPlayerRef {
   playerId: string;
   playerName?: string;
+  preferredTeam?: TeamId;
 }
 
 function sanitizePlayerName(raw?: string): string | undefined {
   if (!raw) return undefined;
   const cleaned = raw.replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 18);
   return cleaned.length > 0 ? cleaned : undefined;
+}
+
+function sanitizeChatText(raw?: string): string {
+  if (!raw) return '';
+  return raw.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
 }
 
 function formatHumanLabel(team: TeamId, idx: number, isHost: boolean, playerName?: string): string {
@@ -50,18 +56,48 @@ function formatHumanLabel(team: TeamId, idx: number, isHost: boolean, playerName
 
 function makeSeats(mode: GameMode, existingHumans: JoinedPlayerRef[] = [], hostId = ''): SeatInfo[] {
   const active = createGame(mode).activeTeams;
-  return active.map((team, idx) => {
-    const ref = existingHumans[idx] ?? null;
-    const isHost = Boolean(ref && (hostId ? ref.playerId === hostId : idx === 0));
-    return {
-      team,
-      occupant: ref ? 'human' : 'open',
-      playerId: ref?.playerId ?? null,
-      playerName: ref?.playerName,
-      label: ref ? formatHumanLabel(team, idx, isHost, ref.playerName) : 'Waiting…',
-      connected: Boolean(ref),
+  const seats: SeatInfo[] = active.map((team) => ({
+    team,
+    occupant: 'open',
+    playerId: null,
+    playerName: undefined,
+    label: 'Waiting…',
+    connected: false,
+  }));
+
+  const unplaced: JoinedPlayerRef[] = [];
+  for (const ref of existingHumans) {
+    const idx = ref.preferredTeam ? seats.findIndex((s) => s.team === ref.preferredTeam && s.occupant === 'open') : -1;
+    if (idx >= 0) {
+      const isHost = Boolean(hostId ? ref.playerId === hostId : idx === 0);
+      seats[idx] = {
+        team: seats[idx].team,
+        occupant: 'human',
+        playerId: ref.playerId,
+        playerName: ref.playerName,
+        label: formatHumanLabel(seats[idx].team, idx, isHost, ref.playerName),
+        connected: true,
+      };
+    } else {
+      unplaced.push(ref);
+    }
+  }
+
+  for (const ref of unplaced) {
+    const idx = seats.findIndex((s) => s.occupant === 'open');
+    if (idx < 0) break;
+    const isHost = Boolean(hostId ? ref.playerId === hostId : idx === 0);
+    seats[idx] = {
+      team: seats[idx].team,
+      occupant: 'human',
+      playerId: ref.playerId,
+      playerName: ref.playerName,
+      label: formatHumanLabel(seats[idx].team, idx, isHost, ref.playerName),
+      connected: true,
     };
-  });
+  }
+
+  return seats;
 }
 
 export function createRoomRecord(code: string, mode: GameMode = '4P_FFA'): RoomRecord {
@@ -189,13 +225,50 @@ export function handleRoomAction(
       return { record: { ...record, seats }, broadcast: [], broadcastSnapshots: true, persist: true };
     }
 
+    case 'select_team': {
+      if (record.started) {
+        return { record, broadcast: [], reply: { type: 'error', message: 'Match already started.' }, persist: false };
+      }
+      const seats = record.seats.map((s) => ({ ...s }));
+      const currentIdx = seats.findIndex((s) => s.playerId === playerId && s.occupant === 'human');
+      const targetIdx = seats.findIndex((s) => s.team === msg.team);
+      if (currentIdx < 0 || targetIdx < 0) return { record, broadcast: [], persist: false };
+      if (currentIdx === targetIdx) return { record, broadcast: [], persist: false };
+      if (seats[targetIdx].occupant !== 'open') {
+        return {
+          record,
+          broadcast: [],
+          reply: { type: 'error', message: `${TEAM_LABELS[msg.team]} is already taken!` },
+          persist: false,
+        };
+      }
+      const moving = seats[currentIdx];
+      seats[targetIdx] = {
+        team: seats[targetIdx].team,
+        occupant: 'human',
+        playerId,
+        playerName: moving.playerName,
+        connected: moving.connected,
+        label: formatHumanLabel(seats[targetIdx].team, targetIdx, record.hostId === playerId, moving.playerName),
+      };
+      seats[currentIdx] = {
+        team: moving.team,
+        occupant: 'open',
+        playerId: null,
+        playerName: undefined,
+        connected: false,
+        label: 'Waiting…',
+      };
+      return { record: { ...record, seats }, broadcast: [], broadcastSnapshots: true, persist: true };
+    }
+
     case 'set_mode': {
       if (playerId !== record.hostId || record.started) {
         return { record, broadcast: [], persist: false };
       }
       const humans: JoinedPlayerRef[] = record.seats
         .filter((s) => s.occupant === 'human' && s.playerId)
-        .map((s) => ({ playerId: s.playerId!, playerName: s.playerName }));
+        .map((s) => ({ playerId: s.playerId!, playerName: s.playerName, preferredTeam: s.team }));
       const next: RoomRecord = {
         ...record,
         mode: msg.mode,
@@ -213,7 +286,7 @@ export function handleRoomAction(
       const modeChanged = msg.mode !== record.mode;
       const baseHumans: JoinedPlayerRef[] = record.seats
         .filter((s) => s.occupant === 'human' && s.playerId)
-        .map((s) => ({ playerId: s.playerId!, playerName: s.playerName }));
+        .map((s) => ({ playerId: s.playerId!, playerName: s.playerName, preferredTeam: s.team }));
       const baseSeats = modeChanged ? makeSeats(msg.mode, baseHumans, record.hostId) : record.seats.map((s) => ({ ...s }));
       const filledSeats: SeatInfo[] = baseSeats.map((s) =>
         s.occupant === 'open' ? { ...s, occupant: 'bot', label: `${TEAM_LABELS[s.team]} (AI)`, connected: true } : s,
@@ -298,6 +371,29 @@ export function handleRoomAction(
         broadcast: [{ type: 'reset', mode: record.mode }],
         broadcastSnapshots: true,
         persist: true,
+      };
+    }
+
+    case 'chat': {
+      const text = sanitizeChatText(msg.text);
+      if (!text) return { record, broadcast: [], persist: false };
+      const seat = record.seats.find((s) => s.playerId === playerId && s.occupant === 'human');
+      const senderName = seat?.playerName || (seat ? TEAM_LABELS[seat.team] : 'Guest');
+      return {
+        record,
+        broadcast: [
+          {
+            type: 'chat',
+            chat: {
+              id: crypto.randomUUID(),
+              team: (seat?.team ?? null) as TeamId | null,
+              senderName,
+              text,
+              ts: Date.now(),
+            },
+          },
+        ],
+        persist: false,
       };
     }
 

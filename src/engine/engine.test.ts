@@ -5,6 +5,8 @@ import {
   TEAM_IDS,
   TRACK_CELLS,
   YARD_SLOT_POSITIONS,
+  getBoardYawForTeam,
+  getCornerSlotForTeam,
   getPawnWorldPosition,
   getProgressPosition,
   getTrackIndex,
@@ -546,5 +548,46 @@ describe('multiplayer roomLogic', () => {
     expect(isRoomCodeOccupied(touched, now + 1000)).toBe(true);
     expect(isRoomExpired(touched, now + ROOM_IDLE_TTL_MS + 1)).toBe(true);
     expect(isRoomCodeOccupied(touched, now + ROOM_IDLE_TTL_MS + 1)).toBe(false);
+  });
+
+  it('enforces first-come first-served color picking, transient live chat, and nearest-player orientation', () => {
+    let room = createRoomRecord('987654321', '4P_FFA');
+    room = joinRoom(room, 'p1', 'Riya');
+    room = joinRoom(room, 'p2', 'Kabir');
+
+    // First-come, first-served color claiming in lobby.
+    const p2PickYellow = handleRoomAction(room, 'p2', { type: 'select_team', team: 'YELLOW' });
+    room = p2PickYellow.record;
+    expect(snapshotForPlayer(room, 'p2').yourTeam).toBe('YELLOW');
+    expect(room.seats.find((s) => s.team === 'CYAN')?.occupant).toBe('open');
+
+    // Trying to take an already-claimed color fails.
+    const collision = handleRoomAction(room, 'p1', { type: 'select_team', team: 'YELLOW' });
+    expect(collision.reply).toEqual({ type: 'error', message: 'Yellow is already taken!' });
+    expect(snapshotForPlayer(collision.record, 'p1').yourTeam).toBe('PINK');
+
+    // Switching mode keeps claimed colors when present in new mode.
+    room = handleRoomAction(room, 'p1', { type: 'set_mode', mode: '2P_COUPLES' }).record;
+    expect(snapshotForPlayer(room, 'p1').yourTeam).toBe('PINK');
+    expect(snapshotForPlayer(room, 'p2').yourTeam).toBe('YELLOW');
+
+    // Live chat broadcasts transiently (zero DO storage write) and ignores empty strings.
+    const emptyChat = handleRoomAction(room, 'p1', { type: 'chat', text: '   \n\t  ' });
+    expect(emptyChat.broadcast).toEqual([]);
+    const chatRes = handleRoomAction(room, 'p2', { type: 'chat', text: 'Let us play!' });
+    expect(chatRes.persist).toBe(false);
+    expect(chatRes.broadcast).toHaveLength(1);
+    expect(chatRes.broadcast[0]).toMatchObject({
+      type: 'chat',
+      chat: { team: 'YELLOW', senderName: 'Kabir', text: 'Let us play!' },
+    });
+
+    // Nearest-player board orientation places every player's own corner at bottom-left ('bl').
+    for (const team of TEAM_IDS) {
+      expect(getCornerSlotForTeam(team, team)).toBe('bl');
+      const corners = TEAM_IDS.map((t) => getCornerSlotForTeam(t, team));
+      expect(new Set(corners).size).toBe(4);
+      expect(Number.isFinite(getBoardYawForTeam(team))).toBe(true);
+    }
   });
 });

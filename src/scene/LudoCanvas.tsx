@@ -3,7 +3,8 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Environment, Lightformer, OrbitControls } from '@react-three/drei';
 import { Bloom, EffectComposer } from '@react-three/postprocessing';
 import * as THREE from 'three';
-import { useGameStore } from '../engine/gameStore';
+import { getBoardYawForTeam } from '../engine/boardMap';
+import { getLocalAnchorTeam, useGameStore } from '../engine/gameStore';
 import { CAPTURE_TWIRL_DURATION, SPAWN_DURATION } from './animationTiming';
 import { BoardMesh } from './BoardMesh';
 import { AnimeEffects } from './effects/AnimeEffects';
@@ -115,6 +116,8 @@ function CameraRig() {
 export function LudoCanvas() {
   const pawns = useGameStore((s) => s.game.pawns);
   const triggerCameraReset = useGameStore((s) => s.triggerCameraReset);
+  const anchorTeam = useGameStore((s) => getLocalAnchorTeam(s));
+  const boardYaw = getBoardYawForTeam(anchorTeam);
 
   return (
     <div className="h-full w-full" onDoubleClick={triggerCameraReset}>
@@ -153,11 +156,13 @@ export function LudoCanvas() {
         >
           <orthographicCamera attach="shadow-camera" args={[-9.8, 9.8, 9.8, -9.8, 1, 45]} />
         </directionalLight>
-        <BoardMesh />
-        {pawns.map((pawn) => (
-          <PawnActor key={pawn.id} pawn={pawn} />
-        ))}
-        <AnimeEffects />
+        <group rotation-y={boardYaw}>
+          <BoardMesh boardYaw={boardYaw} />
+          {pawns.map((pawn) => (
+            <PawnActor key={pawn.id} pawn={pawn} />
+          ))}
+          <AnimeEffects />
+        </group>
         <EffectComposer multisampling={4}>
           <Bloom mipmapBlur luminanceThreshold={1.2} luminanceSmoothing={0.2} intensity={0.85} />
         </EffectComposer>

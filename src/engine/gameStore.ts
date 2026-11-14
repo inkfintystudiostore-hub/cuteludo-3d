@@ -16,7 +16,7 @@ import {
   type WorldPoint,
 } from './boardMap';
 import { applyMove, applyRoll, areAllies, createGame, rollSmartDie, type GameMode, type GameState } from './ludoRules';
-import type { RoomEmoteId, RoomSnapshot, SeatInfo } from './multiplayerProtocol';
+import type { ChatMessage, RoomEmoteId, RoomSnapshot, SeatInfo } from './multiplayerProtocol';
 
 export type GameEventType = 'SPAWN_6' | 'HOP' | 'CAPTURE' | 'REACH_HOME' | 'SHARED_STAR';
 
@@ -82,6 +82,7 @@ export interface RoomTransport {
   move: (pawnId: string) => void;
   reset: () => void;
   emote: (emote: RoomEmoteId) => void;
+  chat: (text: string) => void;
   disconnect: () => void;
 }
 
@@ -112,10 +113,18 @@ export interface GameStore {
   stats: MatchStats;
   log: string[];
   yardEmotes: Partial<Record<TeamId, YardEmoteOverlay>>;
+  chatMessages: ChatMessage[];
+  unreadChat: number;
+  chatOpen: boolean;
+  roomAlert: string | null;
   setSimulation: (on: boolean) => void;
   setVsAi: (on: boolean) => void;
   setPaused: (paused: boolean) => void;
   setRoomPeers: (peers: number) => void;
+  setRoomAlert: (alert: string | null) => void;
+  setChatOpen: (open: boolean) => void;
+  pushChatMessage: (chat: ChatMessage) => void;
+  sendChat: (text: string) => boolean;
   initRoomSession: (room: Partial<RoomSession> & { code: string; role: 'host' | 'guest' }) => void;
   setRoomConnectionStatus: (status: RoomConnectionStatus, statusNote?: string) => void;
   syncRoomSnapshot: (snapshot: RoomSnapshot) => void;
@@ -163,6 +172,13 @@ export function canLocalPlayerAct(s: Pick<GameStore, 'screen' | 'paused' | 'simu
   }
   if (s.vsAi) return s.game.currentTeam === 'PINK';
   return true;
+}
+
+/** Which team's Home Yard is oriented closest to the viewer (bottom-left of screen). */
+export function getLocalAnchorTeam(s: Pick<GameStore, 'room' | 'vsAi' | 'game'>): TeamId {
+  if (s.room?.myTeam) return s.room.myTeam;
+  if (s.vsAi) return 'PINK';
+  return s.game.activeTeams[0] ?? 'PINK';
 }
 
 function appendLog(log: string[], entry: string): string[] {
@@ -312,11 +328,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
   simulation: false,
   vsAi: false,
   cameraResetTick: 0,
+  chatMessages: [],
+  unreadChat: 0,
+  chatOpen: false,
+  roomAlert: null,
 
   setSimulation: (on) => set({ simulation: on }),
   setVsAi: (on) => set({ vsAi: on }),
   setPaused: (paused) => set({ paused }),
   setRoomPeers: (peers) => set((s) => (s.room ? { room: { ...s.room, peers } } : {})),
+  setRoomAlert: (roomAlert) => set({ roomAlert }),
+  setChatOpen: (chatOpen) => set((s) => ({ chatOpen, unreadChat: chatOpen ? 0 : s.unreadChat })),
+
+  pushChatMessage: (chat) =>
+    set((s) => ({
+      chatMessages: [...s.chatMessages, chat].slice(-40),
+      unreadChat: s.chatOpen ? 0 : s.unreadChat + 1,
+    })),
+
+  sendChat: (rawText) => {
+    const clean = rawText.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+    if (!clean) return false;
+    const state = get();
+    if (state.room?.online && roomTransport) {
+      roomTransport.chat(clean);
+      return true;
+    }
+    return false;
+  },
 
   initRoomSession: (room) => set({ room: normalizeRoom(room) }),
 
@@ -448,13 +487,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
       vsAi: nextVsAi,
       simulation: nextSim,
       room: nextRoom,
+      chatMessages: nextRoom?.code && nextRoom.code === get().room?.code ? get().chatMessages : [],
+      unreadChat: 0,
+      chatOpen: false,
+      roomAlert: null,
     });
   },
 
   exitToHome: () => {
     clearPendingTimers();
     roomTransport?.disconnect();
-    set({ screen: 'home', paused: false, simulation: false, room: null });
+    set({
+      screen: 'home',
+      paused: false,
+      simulation: false,
+      room: null,
+      chatMessages: [],
+      unreadChat: 0,
+      chatOpen: false,
+      roomAlert: null,
+    });
   },
 
   setHoveredPawn: (pawnId) => set({ hoveredPawnId: pawnId }),

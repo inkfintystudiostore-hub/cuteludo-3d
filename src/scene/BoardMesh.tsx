@@ -227,7 +227,17 @@ function TrackArrows() {
 
 const NO_RAYCAST: THREE.Object3D['raycast'] = () => {};
 
-function YardEmoteOverlay({ team, centre, color }: { team: TeamId; centre: WorldPoint; color: string }) {
+function YardEmoteOverlay({
+  team,
+  centre,
+  color,
+  boardYaw,
+}: {
+  team: TeamId;
+  centre: WorldPoint;
+  color: string;
+  boardYaw: number;
+}) {
   const yardEmote = useGameStore((s) => s.yardEmotes[team]);
   const clearYardEmote = useGameStore((s) => s.clearYardEmote);
   const cardRef = useRef<THREE.Group>(null);
@@ -256,7 +266,7 @@ function YardEmoteOverlay({ team, centre, color }: { team: TeamId; centre: World
   if (!yardEmote || !texture) return null;
 
   return (
-    <group ref={cardRef} position={[centre.x, 1.46, centre.z]}>
+    <group ref={cardRef} position={[centre.x, 1.46, centre.z]} rotation-y={-boardYaw}>
       <mesh raycast={NO_RAYCAST}>
         <boxGeometry args={[5.82, 0.08, 5.82]} />
         <meshBasicMaterial color={INK} />
@@ -273,7 +283,7 @@ function YardEmoteOverlay({ team, centre, color }: { team: TeamId; centre: World
   );
 }
 
-function Yard({ team }: { team: TeamId }) {
+function Yard({ team, boardYaw }: { team: TeamId; boardYaw: number }) {
   const origin = YARD_ORIGINS[team];
   const centre = cellToWorld({ row: origin.row + 2.5, col: origin.col + 2.5 });
   const color = TEAM_COLORS[team];
@@ -339,7 +349,7 @@ function Yard({ team }: { team: TeamId }) {
           </group>
         ))}
       </group>
-      <YardEmoteOverlay team={team} centre={centre} color={color} />
+      <YardEmoteOverlay team={team} centre={centre} color={color} boardYaw={boardYaw} />
     </group>
   );
 }
@@ -677,7 +687,7 @@ function WoodBase() {
   );
 }
 
-export function BoardMesh() {
+export function BoardMesh({ boardYaw = 0 }: { boardYaw?: number }) {
   return (
     <group>
       <WoodBase />
@@ -685,7 +695,7 @@ export function BoardMesh() {
       <TrackArrows />
       <Stars />
       {TEAM_IDS.map((team) => (
-        <Yard key={team} team={team} />
+        <Yard key={team} team={team} boardYaw={boardYaw} />
       ))}
       <HomeCentre />
       <BoardPreview />

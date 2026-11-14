@@ -36,9 +36,9 @@ body {
   grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   grid-template-areas:
     'menu menu'
-    'pink cyan'
+    'tl tr'
     'board board'
-    'mint yellow'
+    'bl br'
     'dock dock';
 }
 
@@ -56,10 +56,10 @@ body {
     grid-template-columns: var(--side-left) minmax(0, 1fr) var(--side-right);
     grid-template-rows: auto auto minmax(0, 1fr) auto;
     grid-template-areas:
-      'menu board cyan'
-      'pink board dock'
+      'menu board tr'
+      'tl board dock'
       '. board dock'
-      'mint board yellow';
+      'bl board br';
   }
 
   /* Short landscape windows have no room for the move log beside the dice. */

@@ -5,8 +5,16 @@
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import gsap from 'gsap';
-import { HOME_PROGRESS, PAWNS_PER_TEAM, TEAM_COLORS, TEAM_LABELS, YARD_PROGRESS, type TeamId } from '../engine/boardMap';
-import { canLocalPlayerAct, useGameStore } from '../engine/gameStore';
+import {
+  HOME_PROGRESS,
+  PAWNS_PER_TEAM,
+  TEAM_COLORS,
+  TEAM_LABELS,
+  YARD_PROGRESS,
+  getCornerSlotForTeam,
+  type TeamId,
+} from '../engine/boardMap';
+import { canLocalPlayerAct, getLocalAnchorTeam, useGameStore } from '../engine/gameStore';
 import { pickSmartBotMove } from '../engine/ludoRules';
 import { buildRoomShareUrl, formatRoomCode, resolveShareBaseUrl } from '../engine/roomCode';
 import { DiceTray } from '../scene/Dice3D';
@@ -14,8 +22,10 @@ import { CHARACTER_PROFILES } from '../scene/ChibiFigure';
 import { EMOTES, playEmoteVideo, preloadEmoteVideos } from '../scene/emoteMedia';
 import { soundManager } from '../utils/soundManager';
 import { HomeLobbyModal } from './HomeLobbyModal';
+import { RoomChatBox } from './RoomChatBox';
 import {
   CameraIcon,
+  ChatIcon,
   CheckIcon,
   ChevronDownIcon,
   DoorExitIcon,
@@ -33,7 +43,6 @@ import {
 } from './Icons';
 
 const PARTNER: Record<TeamId, TeamId> = { PINK: 'YELLOW', YELLOW: 'PINK', CYAN: 'MINT', MINT: 'CYAN' };
-const GRID_AREA: Record<TeamId, string> = { PINK: 'pink', CYAN: 'cyan', YELLOW: 'yellow', MINT: 'mint' };
 
 /** How much faster animations run while simulation mode is active. */
 const SIMULATION_SPEED = 4;
@@ -139,6 +148,10 @@ function TopLeftGameMenu() {
   const screen = useGameStore((s) => s.screen);
   const paused = useGameStore((s) => s.paused);
   const room = useGameStore((s) => s.room);
+  const chatOpen = useGameStore((s) => s.chatOpen);
+  const unreadChat = useGameStore((s) => s.unreadChat);
+  const chatMessages = useGameStore((s) => s.chatMessages);
+  const setChatOpen = useGameStore((s) => s.setChatOpen);
   const muted = useSyncExternalStore(soundManager.subscribe, soundManager.isMuted);
   const setPaused = useGameStore((s) => s.setPaused);
   const resetGame = useGameStore((s) => s.resetGame);
@@ -147,16 +160,28 @@ function TopLeftGameMenu() {
 
   const [open, setOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [toastChatId, setToastChatId] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const latestChat = chatMessages[chatMessages.length - 1] ?? null;
 
   useEffect(() => {
-    if (!open) return;
+    if (!latestChat || chatOpen) return;
+    setToastChatId(latestChat.id);
+    const timer = setTimeout(() => setToastChatId(null), 3500);
+    return () => clearTimeout(timer);
+  }, [latestChat?.id, chatOpen]);
+
+  useEffect(() => {
+    if (!open && !chatOpen) return;
     const handleOutside = (e: PointerEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setChatOpen(false);
+      }
     };
     window.addEventListener('pointerdown', handleOutside);
     return () => window.removeEventListener('pointerdown', handleOutside);
-  }, [open]);
+  }, [open, chatOpen, setChatOpen]);
 
   if (screen !== 'playing') return <div style={{ gridArea: 'menu' }} />;
 
@@ -172,13 +197,16 @@ function TopLeftGameMenu() {
   };
 
   return (
-    <div ref={wrapRef} style={{ gridArea: 'menu' }} className="relative z-30 flex w-max items-center gap-2 self-start">
+    <div ref={wrapRef} style={{ gridArea: 'menu' }} className="relative z-30 flex w-max items-center gap-1.5 sm:gap-2 self-start">
       <button
         type="button"
         aria-expanded={open}
         aria-haspopup="menu"
-        onClick={() => setOpen((v) => !v)}
-        className={`flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-white px-3 text-xs font-bold tracking-wide whitespace-nowrap uppercase ${INK_BUTTON}`}
+        onClick={() => {
+          setChatOpen(false);
+          setOpen((v) => !v);
+        }}
+        className={`flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-white px-2.5 sm:px-3 text-xs font-bold tracking-wide whitespace-nowrap uppercase ${INK_BUTTON}`}
       >
         <MenuIcon className="size-4" />
         <span>Menu</span>
@@ -190,11 +218,70 @@ function TopLeftGameMenu() {
           type="button"
           onClick={copyRoomInvite}
           title="Copy room invite link"
-          className={`flex min-h-9 shrink-0 items-center gap-1 rounded-xl bg-[#a9f0ff] px-2.5 font-mono text-[11px] font-bold whitespace-nowrap ${INK_BUTTON}`}
+          className={`flex min-h-9 shrink-0 items-center gap-1 rounded-xl bg-[#a9f0ff] px-2 sm:px-2.5 font-mono text-[11px] font-bold whitespace-nowrap ${INK_BUTTON}`}
         >
           {copiedLink ? <CheckIcon className="size-3.5" /> : <LinkIcon className="size-3.5" />}
-          <span>{copiedLink ? 'Copied Link!' : formatRoomCode(room.code)}</span>
+          <span>{copiedLink ? 'Copied!' : formatRoomCode(room.code)}</span>
         </button>
+      )}
+
+      {room && (
+        <button
+          type="button"
+          aria-expanded={chatOpen}
+          aria-label="Toggle live chat"
+          onClick={() => {
+            setOpen(false);
+            setChatOpen(!chatOpen);
+          }}
+          className={`relative flex min-h-9 shrink-0 items-center gap-1 rounded-xl px-2.5 text-xs font-bold whitespace-nowrap uppercase ${INK_BUTTON} ${
+            chatOpen ? 'bg-ink text-white' : 'bg-[#ffd875] text-ink'
+          }`}
+        >
+          <ChatIcon className="size-3.5" />
+          <span className="hidden sm:inline">Chat</span>
+          {unreadChat > 0 && !chatOpen && (
+            <span className="grid min-w-4 place-items-center rounded-full bg-[#ff3d6e] px-1 text-[10px] font-bold text-white">
+              {unreadChat > 9 ? '9+' : unreadChat}
+            </span>
+          )}
+        </button>
+      )}
+
+      {room && !chatOpen && latestChat && toastChatId === latestChat.id && (
+        <button
+          type="button"
+          onClick={() => setChatOpen(true)}
+          className="hidden max-w-48 cursor-pointer items-center gap-1.5 truncate rounded-xl border-2 border-ink bg-white px-2.5 py-1 text-xs font-bold text-ink shadow-ink-sm sm:flex"
+        >
+          <span
+            className="shrink-0 rounded px-1 text-[10px]"
+            style={{ backgroundColor: latestChat.team ? TEAM_COLORS[latestChat.team] : '#ffe0ea' }}
+          >
+            {latestChat.senderName}
+          </span>
+          <span className="truncate font-semibold">{latestChat.text}</span>
+        </button>
+      )}
+
+      {room && chatOpen && (
+        <div
+          role="dialog"
+          aria-label="Live room chat"
+          className={`absolute top-11 left-0 flex w-72 flex-col gap-2 rounded-2xl bg-white p-2.5 select-text sm:w-80 ${INK_BOX}`}
+        >
+          <div className="flex items-center justify-between border-b-2 border-ink/10 pb-1">
+            <span className="text-xs font-bold tracking-wider text-ink uppercase">Live Room Chat</span>
+            <button
+              type="button"
+              onClick={() => setChatOpen(false)}
+              className="cursor-pointer rounded-md px-1.5 text-xs font-bold text-ink/70 hover:bg-[#ffe0ea] hover:text-ink"
+            >
+              Close
+            </button>
+          </div>
+          <RoomChatBox />
+        </div>
       )}
 
       {open && (
@@ -301,10 +388,12 @@ function StatusBadge({ team }: { team: TeamId }) {
   const totalTeams = useGameStore((s) => s.game.activeTeams.length);
   const vsAi = useGameStore((s) => s.vsAi);
   const room = useGameStore((s) => s.room);
+  const anchorTeam = useGameStore((s) => getLocalAnchorTeam(s));
+  const corner = getCornerSlotForTeam(team, anchorTeam);
   const home = useGameStore((s) => s.game.pawns.filter((p) => p.team === team && p.progress === HOME_PROGRESS).length);
   const yard = useGameStore((s) => s.game.pawns.filter((p) => p.team === team && p.progress === YARD_PROGRESS).length);
-  const onRight = team === 'CYAN' || team === 'YELLOW';
-  if (!active) return <div style={{ gridArea: GRID_AREA[team] }} />;
+  const onRight = corner === 'tr' || corner === 'br';
+  if (!active) return <div style={{ gridArea: corner }} />;
 
   const rankIndex = rankings.indexOf(team);
   const rank = rankIndex >= 0 ? rankIndex + 1 : null;
@@ -314,7 +403,7 @@ function StatusBadge({ team }: { team: TeamId }) {
   const displayName = seat?.playerName || TEAM_LABELS[team];
   const summary = `${displayName}${isMe ? ' (You)' : isBot ? ' (AI)' : ''}: ${home} of ${PAWNS_PER_TEAM} home, ${yard} in the yard${rank ? `, finished ${rank}` : isTurn ? ', current turn' : ''}`;
   return (
-    <div style={{ gridArea: GRID_AREA[team] }} className={`flex ${onRight ? 'justify-end' : 'justify-start'} landscape:justify-center`}>
+    <div style={{ gridArea: corner }} className={`flex ${onRight ? 'justify-end' : 'justify-start'} landscape:justify-center`}>
       <div
         role="status"
         aria-label={summary}
