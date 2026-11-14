@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   HOME_COLUMN_CELLS,
   SAFE_TRACK_INDICES,
@@ -16,8 +16,10 @@ import {
   areAllies,
   createGame,
   getMovePreview,
+  getSmartDiceWeights,
   pickSmartBotMove,
   rollDie,
+  rollSmartDie,
   type GameState,
 } from './ludoRules';
 import { useGameStore } from './gameStore';
@@ -169,12 +171,21 @@ describe('ludoRules', () => {
     expect(applyMove(applyRoll(state, 3).state, 'PINK-0').captured).toEqual([]);
   });
 
-  it('requires an exact roll to enter Home and ends 2P when a team is all home', () => {
+  it('requires an exact roll to enter Home, grants a bonus roll for non-final pawns, and ends 2P when all home', () => {
+    // 1st pawn reaching Home grants Pink an extra chance while other pawns remain!
+    const mid = place(createGame('2P_COUPLES'), { 'PINK-0': 54 });
+    const bonusHome = applyMove(applyRoll(mid, 2).state, 'PINK-0');
+    expect(bonusHome.reachedHome).toBe(true);
+    expect(bonusHome.finishedRank).toBeNull();
+    expect(bonusHome.bonusRoll).toBe(true);
+    expect(bonusHome.state).toMatchObject({ currentTeam: 'PINK', phase: 'ROLL' });
+
     const state = place(createGame('2P_COUPLES'), { 'PINK-0': 54, 'PINK-1': 56, 'PINK-2': 56, 'PINK-3': 56 });
     expect(applyRoll(state, 3).outcome).toBe('NO_MOVES');
     const home = applyMove(applyRoll(state, 2).state, 'PINK-0');
     expect(home.reachedHome).toBe(true);
     expect(home.finishedRank).toBe(1);
+    expect(home.bonusRoll).toBe(false);
     expect(home.state).toMatchObject({ phase: 'GAME_OVER', winners: ['PINK'], rankings: ['PINK', 'YELLOW'] });
   });
 
@@ -217,6 +228,35 @@ describe('dice', () => {
     // Expected 20,000 each; 600 is more than four standard deviations of slack.
     for (const count of counts) expect(Math.abs(count - rolls / 6)).toBeLessThan(600);
   });
+
+  it('revamps probabilities dynamically for yard spawns, captures, chases, and escapes while preserving bounds', () => {
+    // 1. Yard rescue: 0 active pawns boosts 6 probability.
+    const yardEmpty = createGame('4P_FFA');
+    const yardWeights = getSmartDiceWeights(yardEmpty);
+    expect(yardWeights[5]).toBeGreaterThan(yardWeights[0]);
+    expect(rollSmartDie(yardEmpty, () => 0.99)).toBe(6);
+
+    let sixCount = 0;
+    for (let i = 0; i < 6000; i++) if (rollSmartDie(yardEmpty) === 6) sixCount++;
+    expect(sixCount).toBeGreaterThan(1350); // > 22.5% (well above baseline 16.7%)
+
+    // 2. Capture boost: Cyan-0 is on track 15 (progress 2), Pink-0 at 12 needs a 3 to capture.
+    const captureState = place(createGame('4P_FFA'), { 'PINK-0': 12, 'CYAN-0': 2 });
+    const captureWeights = getSmartDiceWeights(captureState);
+    expect(captureWeights[2]).toBeGreaterThan(captureWeights[0]); // face 3 > face 1
+
+    // 3. Chase boost: Pink-0 at 12 can roll 1 to sit 2 steps behind Cyan-0 (at progress 2 => track 15).
+    expect(captureWeights[0]).toBeGreaterThan(1);
+
+    // 4. Escape boost: Pink-0 at 10 (unsafe track 10) hunted by Cyan-0 at progress 50? No, let Cyan-0 sit at 48 (track 9, 1 step behind Pink-0!).
+    // Wait: Pink progress 15 (track 15) hunted by Cyan progress 1 (track 14, 1 behind); Pink rolling 6 lands at 21 (safe star!)
+    const huntedState = place(createGame('4P_FFA'), { 'PINK-0': 15, 'CYAN-0': 1 });
+    const huntedWeights = getSmartDiceWeights(huntedState);
+    expect(huntedWeights[5]).toBeGreaterThan(1.5); // rolling 6 reaches safe star 21
+
+    // Every face remains positively weighted so all outcomes remain possible.
+    for (const w of huntedWeights) expect(w).toBeGreaterThanOrEqual(0.45);
+  });
 });
 
 describe('full-game simulation', () => {
@@ -233,7 +273,7 @@ describe('full-game simulation', () => {
       let turns = 0;
       while (state.phase !== 'GAME_OVER') {
         expect(++turns).toBeLessThan(20000); // every game must end
-        const value = rollDie(random);
+        const value = rollSmartDie(state, random);
         const roller = state.currentTeam;
         const streakBefore = state.sixStreak;
         const roll = applyRoll(state, value);
@@ -276,8 +316,9 @@ describe('full-game simulation', () => {
         }
         if (move.state.phase !== 'GAME_OVER') {
           const keepsTurn = move.state.currentTeam === roller;
+          if (move.reachedHome && !isDone(move.state, roller)) expect(move.bonusRoll).toBe(true);
           if (move.bonusRoll) expect(keepsTurn).toBe(true);
-          else if (move.state.activeTeams.length > 1) expect(keepsTurn && value !== 6 && move.captured.length === 0 && !isDone(move.state, roller)).toBe(false);
+          else if (move.state.activeTeams.length > 1) expect(keepsTurn && value !== 6 && move.captured.length === 0 && !move.reachedHome && !isDone(move.state, roller)).toBe(false);
         }
         state = move.state;
       }
@@ -367,6 +408,11 @@ describe('roomCode helpers', () => {
 });
 
 describe('gameStore enhancements', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    useGameStore.getState().exitToHome();
+  });
+
   it('supports home/playing lifecycle, pause, room state, hoveredPawnId, and resetGame', () => {
     expect(useGameStore.getState().screen).toBe('home');
 
@@ -400,26 +446,71 @@ describe('gameStore enhancements', () => {
     store.exitToHome();
     expect(useGameStore.getState().screen).toBe('home');
   });
+
+  it('auto-moves when only one pawn is movable on the board and waits when rolling a 6 with yard choices', () => {
+    vi.useFakeTimers();
+    const store = useGameStore.getState();
+    store.startMatch({ mode: '2P_COUPLES', vsAi: false, simulation: false, room: null });
+
+    // Place only PINK-0 on the board (progress 4); others stay in yard (-1).
+    useGameStore.setState((s) => ({
+      game: place(s.game, { 'PINK-0': 4 }),
+      activeRoll: { id: 9001, value: 3 },
+      isAnimating: true,
+    }));
+
+    useGameStore.getState().completeRoll(9001);
+    expect(useGameStore.getState().legalMoves).toEqual(['PINK-0']);
+    expect(useGameStore.getState().notice).toContain('Auto-moving');
+
+    // Advance timer -> pawn automatically moves!
+    vi.advanceTimersByTime(300);
+    expect(useGameStore.getState().pendingGame?.pawns.find((p) => p.id === 'PINK-0')?.progress).toBe(7);
+
+    // Complete pending event and test a 6 with yard choices -> should NOT auto-move.
+    const ev = useGameStore.getState().lastEvent!;
+    useGameStore.getState().completeEvent(ev.id);
+    useGameStore.setState((s) => ({
+      game: { ...place(s.game, { 'PINK-0': 4 }), currentTeam: 'PINK', phase: 'ROLL' },
+      activeRoll: { id: 9002, value: 6 },
+      isAnimating: true,
+    }));
+    useGameStore.getState().completeRoll(9002);
+    vi.advanceTimersByTime(500);
+    expect(useGameStore.getState().game.phase).toBe('MOVE');
+    expect(useGameStore.getState().legalMoves).toHaveLength(4);
+    expect(useGameStore.getState().pendingGame).toBeNull();
+  });
 });
 
 describe('multiplayer roomLogic', () => {
-  it('assigns seats, prevents out-of-turn rolls, and runs authoritative moves', () => {
+  it('assigns seats with player names, updates names/modes, prevents out-of-turn rolls, and runs authoritative moves', () => {
     let room = createRoomRecord('482910375', '4P_FFA');
-    room = joinRoom(room, 'host-1');
-    room = joinRoom(room, 'guest-2');
+    room = joinRoom(room, 'host-1', 'Aman');
+    room = joinRoom(room, 'guest-2', 'Priya');
 
-    const hostSnap = snapshotForPlayer(room, 'host-1');
-    const guestSnap = snapshotForPlayer(room, 'guest-2');
+    let hostSnap = snapshotForPlayer(room, 'host-1');
+    let guestSnap = snapshotForPlayer(room, 'guest-2');
     expect(hostSnap.yourTeam).toBe('PINK');
     expect(hostSnap.isHost).toBe(true);
     expect(guestSnap.yourTeam).toBe('CYAN');
     expect(guestSnap.isHost).toBe(false);
+    expect(hostSnap.seats[0]).toMatchObject({ playerName: 'Aman', label: 'Aman (Host)' });
+    expect(hostSnap.seats[1]).toMatchObject({ playerName: 'Priya', label: 'Priya' });
 
-    // Host starts the game; empty Yellow & Mint seats become smart bots.
-    const started = handleRoomAction(room, 'host-1', { type: 'start', mode: '4P_FFA' });
+    // Live rename & mode switch preserve joined player names.
+    room = handleRoomAction(room, 'guest-2', { type: 'set_name', name: 'PriyaK' }).record;
+    room = handleRoomAction(room, 'host-1', { type: 'set_mode', mode: '3P_FFA' }).record;
+    hostSnap = snapshotForPlayer(room, 'host-1');
+    guestSnap = snapshotForPlayer(room, 'guest-2');
+    expect(hostSnap.seats).toHaveLength(3);
+    expect(hostSnap.seats[1]).toMatchObject({ playerName: 'PriyaK', label: 'PriyaK' });
+
+    // Host starts the game; empty Yellow seat becomes a smart bot.
+    const started = handleRoomAction(room, 'host-1', { type: 'start', mode: '3P_FFA' });
     room = started.record;
     expect(room.started).toBe(true);
-    expect(room.seats.filter((s) => s.occupant === 'bot').map((s) => s.team)).toEqual(['YELLOW', 'MINT']);
+    expect(room.seats.filter((s) => s.occupant === 'bot').map((s) => s.team)).toEqual(['YELLOW']);
 
     // Guest cannot roll during Pink's turn.
     const spoofRoll = handleRoomAction(room, 'guest-2', { type: 'roll' });

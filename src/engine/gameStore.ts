@@ -15,7 +15,7 @@ import {
   type TeamId,
   type WorldPoint,
 } from './boardMap';
-import { applyMove, applyRoll, areAllies, createGame, rollDie, type GameMode, type GameState } from './ludoRules';
+import { applyMove, applyRoll, areAllies, createGame, rollSmartDie, type GameMode, type GameState } from './ludoRules';
 import type { RoomEmoteId, RoomSnapshot, SeatInfo } from './multiplayerProtocol';
 
 export type GameEventType = 'SPAWN_6' | 'HOP' | 'CAPTURE' | 'REACH_HOME' | 'SHARED_STAR';
@@ -127,10 +127,17 @@ export interface GameStore {
 
 const NO_MOVE_DISPLAY_MS = 600;
 const NO_MOVE_SIMULATION_MS = 120;
+const AUTO_MOVE_DELAY_MS = 260;
 const LOG_LIMIT = 40;
 let nextEventId = 1;
 let passTimer: ReturnType<typeof setTimeout> | undefined;
+let autoMoveTimer: ReturnType<typeof setTimeout> | undefined;
 let roomTransport: RoomTransport | null = null;
+
+function clearPendingTimers(): void {
+  clearTimeout(passTimer);
+  clearTimeout(autoMoveTimer);
+}
 
 export function registerRoomTransport(transport: RoomTransport | null): void {
   roomTransport = transport;
@@ -247,6 +254,7 @@ function buildMovePatch(state: GameStore, pawnId: string) {
   if (result.state.phase === 'GAME_OVER') notice = `${result.state.winners.map((t) => TEAM_LABELS[t]).join(' & ')} win!`;
   else if (result.finishedRank !== null) notice = `${TEAM_LABELS[team]} finished ${ordinal(result.finishedRank)}! ${turnNotice(result.state.currentTeam)}`;
   else if (result.captured.length > 0) notice = `Captured! ${TEAM_LABELS[team]} rolls again.`;
+  else if (result.reachedHome && result.bonusRoll) notice = `Home! ${TEAM_LABELS[team]} gets a bonus roll!`;
   else if (result.bonusRoll) notice = `A six! ${TEAM_LABELS[team]} rolls again.`;
 
   let lastBanner = state.lastBanner;
@@ -255,7 +263,11 @@ function buildMovePatch(state: GameStore, pawnId: string) {
   } else if (result.captured.length > 0) {
     lastBanner = { id: nextEventId++, text: `${TEAM_LABELS[team]} CAPTURED! +1 Bonus Roll`, tone: 'capture' };
   } else if (result.reachedHome) {
-    lastBanner = { id: nextEventId++, text: `${TEAM_LABELS[team]} JOINED THE PICNIC!`, tone: 'home' };
+    lastBanner = {
+      id: nextEventId++,
+      text: result.bonusRoll ? `${TEAM_LABELS[team]} HOME! +1 Bonus Roll` : `${TEAM_LABELS[team]} JOINED THE PICNIC!`,
+      tone: 'home',
+    };
   }
 
   const steps = result.kind === 'SPAWN' ? 'leaves the yard' : `moves ${result.to - result.from} (${result.from} to ${result.to})`;
@@ -326,7 +338,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
 
     if (shouldEnterPlaying) {
-      clearTimeout(passTimer);
+      clearPendingTimers();
       set({
         ...freshState(snapshot.mode, snapshot.game),
         screen: 'playing',
@@ -373,7 +385,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   syncRemoteReset: (mode) => {
-    clearTimeout(passTimer);
+    clearPendingTimers();
     set({ ...freshState(mode), paused: false });
   },
 
@@ -386,7 +398,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   startMatch: (options) => {
-    clearTimeout(passTimer);
+    clearPendingTimers();
     const nextMode = options?.mode ?? get().game.mode;
     const nextVsAi = options?.vsAi ?? get().vsAi;
     const nextSim = options?.simulation ?? false;
@@ -402,7 +414,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   exitToHome: () => {
-    clearTimeout(passTimer);
+    clearPendingTimers();
     roomTransport?.disconnect();
     set({ screen: 'home', paused: false, simulation: false, room: null });
   },
@@ -424,7 +436,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     set({
-      activeRoll: { id: nextEventId++, value: rollDie() },
+      activeRoll: { id: nextEventId++, value: rollSmartDie(game) },
       isAnimating: true,
       legalMoves: [],
       hoveredPawnId: null,
@@ -433,7 +445,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   completeRoll: (rollId) => {
-    const { game, activeRoll, stats } = get();
+    const { game, activeRoll, stats, simulation, vsAi, room, screen } = get();
     if (!activeRoll || activeRoll.id !== rollId) return;
     const value = activeRoll.value;
     const result = applyRoll(game, value);
@@ -453,6 +465,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
               tone: 'six',
             }
           : get().lastBanner;
+      const isHumanTurn =
+        !simulation && (room?.online ? room.myTeam === result.state.currentTeam : !vsAi || result.state.currentTeam === 'PINK');
+      const shouldAutoMove = screen === 'playing' && result.legalMoves.length === 1 && isHumanTurn;
       set({
         game: result.state,
         legalMoves: result.legalMoves,
@@ -461,9 +476,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
         isAnimating: false,
         stats: nextStats,
         lastBanner: sixBanner,
-        notice: `Rolled ${value}! Pick a glowing pawn.`,
+        notice: shouldAutoMove ? `Rolled ${value}! Auto-moving…` : `Rolled ${value}! Pick a glowing pawn.`,
         log: appendLog(get().log, `${roller} rolled ${value}`),
       });
+      if (shouldAutoMove) {
+        clearTimeout(autoMoveTimer);
+        const onlyPawn = result.legalMoves[0];
+        autoMoveTimer = setTimeout(() => {
+          const cur = get();
+          if (cur.screen === 'playing' && !cur.paused && !cur.isAnimating && cur.game.phase === 'MOVE' && cur.legalMoves.includes(onlyPawn)) {
+            cur.selectPawn(onlyPawn);
+          }
+        }, AUTO_MOVE_DELAY_MS);
+      }
       return;
     }
 
@@ -491,6 +516,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   selectPawn: (pawnId) => {
+    clearTimeout(autoMoveTimer);
     const state = get();
     const { game, isAnimating, paused, legalMoves, room } = state;
     if (paused || isAnimating || game.phase !== 'MOVE' || !legalMoves.includes(pawnId)) return;
@@ -518,7 +544,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   setMode: (mode) => {
-    clearTimeout(passTimer);
+    clearPendingTimers();
     set({ ...freshState(mode), paused: false });
   },
 
@@ -528,7 +554,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (room.isHost) roomTransport.reset();
       return;
     }
-    clearTimeout(passTimer);
+    clearPendingTimers();
     set({ ...freshState(get().game.mode), paused: false });
   },
 }));

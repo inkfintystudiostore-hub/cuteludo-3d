@@ -26,7 +26,7 @@ interface SocketAttachment {
   playerId: string;
 }
 
-const VALID_MODES = new Set<GameMode>(['2P_COUPLES', '4P_FFA', '2V2_TEAM']);
+const VALID_MODES = new Set<GameMode>(['2P_COUPLES', '3P_FFA', '4P_FFA', '2V2_TEAM']);
 const MAX_WS_PAYLOAD_BYTES = 4096;
 const FRAME_ANCESTORS_CSP =
   "frame-ancestors 'self' https://inkfinitystudio.store https://www.inkfinitystudio.store http://localhost:* http://127.0.0.1:*";
@@ -186,12 +186,13 @@ export class LudoRoomDO extends DurableObject<Env> {
     const codeMatch = url.pathname.match(/(\d{9})$/);
     const code = codeMatch?.[1] ?? '000000000';
     const playerId = url.searchParams.get('pid')?.trim() || crypto.randomUUID();
+    const playerName = url.searchParams.get('name') ?? undefined;
 
     if (!this.room) {
       this.room = createRoomRecord(code, mode);
     }
 
-    const updated = joinRoom(this.room, playerId);
+    const updated = joinRoom(this.room, playerId, playerName);
     await this.saveRoom(updated);
 
     const pair = new WebSocketPair();

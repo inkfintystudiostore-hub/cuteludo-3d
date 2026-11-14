@@ -11,6 +11,7 @@ export interface SeatInfo {
   team: TeamId;
   occupant: 'human' | 'bot' | 'open';
   playerId: string | null;
+  playerName?: string;
   label: string;
   connected: boolean;
 }
@@ -28,7 +29,8 @@ export interface RoomSnapshot {
 }
 
 export type ClientMessage =
-  | { type: 'join'; playerId: string }
+  | { type: 'join'; playerId: string; name?: string }
+  | { type: 'set_name'; name: string }
   | { type: 'set_mode'; mode: GameMode }
   | { type: 'start'; mode: GameMode }
   | { type: 'roll' }

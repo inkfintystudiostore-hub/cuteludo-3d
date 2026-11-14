@@ -4,7 +4,7 @@
  * and emits compact events so connected devices animate in lockstep.
  */
 import { TEAM_LABELS, type TeamId } from '../src/engine/boardMap';
-import { applyMove, applyRoll, createGame, rollDie, type GameMode, type GameState } from '../src/engine/ludoRules';
+import { applyMove, applyRoll, createGame, rollSmartDie, type GameMode, type GameState } from '../src/engine/ludoRules';
 import type { ClientMessage, RoomSnapshot, SeatInfo, ServerMessage } from '../src/engine/multiplayerProtocol';
 
 export const ROOM_IDLE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -30,16 +30,34 @@ export function isRoomCodeOccupied(record: RoomRecord | null, now = Date.now()):
   return true;
 }
 
-function makeSeats(mode: GameMode, existingHumanIds: string[] = []): SeatInfo[] {
+interface JoinedPlayerRef {
+  playerId: string;
+  playerName?: string;
+}
+
+function sanitizePlayerName(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const cleaned = raw.replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 18);
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+function formatHumanLabel(team: TeamId, idx: number, isHost: boolean, playerName?: string): string {
+  if (playerName) return isHost ? `${playerName} (Host)` : playerName;
+  return isHost ? `${TEAM_LABELS[team]} (Host)` : `${TEAM_LABELS[team]} (P${idx + 1})`;
+}
+
+function makeSeats(mode: GameMode, existingHumans: JoinedPlayerRef[] = [], hostId = ''): SeatInfo[] {
   const active = createGame(mode).activeTeams;
   return active.map((team, idx) => {
-    const pid = existingHumanIds[idx] ?? null;
+    const ref = existingHumans[idx] ?? null;
+    const isHost = Boolean(ref && (hostId ? ref.playerId === hostId : idx === 0));
     return {
       team,
-      occupant: pid ? 'human' : 'open',
-      playerId: pid,
-      label: pid ? (idx === 0 ? `${TEAM_LABELS[team]} (Host)` : `${TEAM_LABELS[team]} (P${idx + 1})`) : 'Waiting…',
-      connected: Boolean(pid),
+      occupant: ref ? 'human' : 'open',
+      playerId: ref?.playerId ?? null,
+      playerName: ref?.playerName,
+      label: ref ? formatHumanLabel(team, idx, isHost, ref.playerName) : 'Waiting…',
+      connected: Boolean(ref),
     };
   });
 }
@@ -72,26 +90,32 @@ export function snapshotForPlayer(record: RoomRecord, playerId: string): RoomSna
   };
 }
 
-export function joinRoom(record: RoomRecord, playerId: string): RoomRecord {
+export function joinRoom(record: RoomRecord, playerId: string, name?: string): RoomRecord {
   const seats = record.seats.map((s) => ({ ...s }));
-  const existing = seats.find((s) => s.playerId === playerId);
-  if (existing) {
+  const cleanName = sanitizePlayerName(name);
+  const existingIdx = seats.findIndex((s) => s.playerId === playerId);
+  if (existingIdx >= 0) {
+    const existing = seats[existingIdx];
     existing.connected = true;
     const hostId = record.hostId || playerId;
+    if (cleanName !== undefined) existing.playerName = cleanName;
+    existing.label = formatHumanLabel(existing.team, existingIdx, hostId === playerId, existing.playerName);
     return { ...record, hostId, seats };
   }
 
   let hostId = record.hostId;
   if (!record.started) {
-    const open = seats.find((s) => s.occupant === 'open');
-    if (open) {
+    const openIdx = seats.findIndex((s) => s.occupant === 'open');
+    if (openIdx >= 0) {
+      const open = seats[openIdx];
       const takenCount = seats.filter((s) => s.occupant === 'human').length;
       if (!hostId) hostId = playerId;
       const isHost = hostId === playerId;
       open.occupant = 'human';
       open.playerId = playerId;
+      open.playerName = cleanName;
       open.connected = true;
-      open.label = isHost ? `${TEAM_LABELS[open.team]} (Host)` : `${TEAM_LABELS[open.team]} (P${takenCount + 1})`;
+      open.label = formatHumanLabel(open.team, takenCount, isHost, cleanName);
     }
   }
 
@@ -106,6 +130,7 @@ export function disconnectPlayer(record: RoomRecord, playerId: string): RoomReco
   if (!record.started) {
     target.occupant = 'open';
     target.playerId = null;
+    target.playerName = undefined;
     target.connected = false;
     target.label = 'Waiting…';
   } else {
@@ -114,8 +139,11 @@ export function disconnectPlayer(record: RoomRecord, playerId: string): RoomReco
 
   let hostId = record.hostId;
   if (hostId === playerId) {
-    const nextHost = seats.find((s) => s.occupant === 'human' && s.connected && s.playerId);
-    if (nextHost?.playerId) hostId = nextHost.playerId;
+    const nextIdx = seats.findIndex((s) => s.occupant === 'human' && s.connected && s.playerId);
+    if (nextIdx >= 0 && seats[nextIdx].playerId) {
+      hostId = seats[nextIdx].playerId!;
+      seats[nextIdx].label = formatHumanLabel(seats[nextIdx].team, nextIdx, true, seats[nextIdx].playerName);
+    }
   }
 
   return { ...record, hostId, seats };
@@ -145,19 +173,31 @@ export function handleRoomAction(
 ): RoomActionResult {
   switch (msg.type) {
     case 'join': {
-      const next = joinRoom(record, playerId);
+      const next = joinRoom(record, playerId, msg.name);
       return { record: next, broadcast: [], broadcastSnapshots: true, persist: true };
+    }
+
+    case 'set_name': {
+      const seats = record.seats.map((s) => ({ ...s }));
+      const idx = seats.findIndex((s) => s.playerId === playerId && s.occupant === 'human');
+      if (idx < 0) return { record, broadcast: [], persist: false };
+      const cleanName = sanitizePlayerName(msg.name);
+      seats[idx].playerName = cleanName;
+      seats[idx].label = formatHumanLabel(seats[idx].team, idx, record.hostId === playerId, cleanName);
+      return { record: { ...record, seats }, broadcast: [], broadcastSnapshots: true, persist: true };
     }
 
     case 'set_mode': {
       if (playerId !== record.hostId || record.started) {
         return { record, broadcast: [], persist: false };
       }
-      const humanIds = record.seats.filter((s) => s.occupant === 'human' && s.playerId).map((s) => s.playerId!);
+      const humans: JoinedPlayerRef[] = record.seats
+        .filter((s) => s.occupant === 'human' && s.playerId)
+        .map((s) => ({ playerId: s.playerId!, playerName: s.playerName }));
       const next: RoomRecord = {
         ...record,
         mode: msg.mode,
-        seats: makeSeats(msg.mode, humanIds),
+        seats: makeSeats(msg.mode, humans, record.hostId),
         game: createGame(msg.mode),
         legalMoves: [],
       };
@@ -169,8 +209,10 @@ export function handleRoomAction(
         return { record, broadcast: [], persist: false };
       }
       const modeChanged = msg.mode !== record.mode;
-      const baseHumans = record.seats.filter((s) => s.occupant === 'human' && s.playerId).map((s) => s.playerId!);
-      const baseSeats = modeChanged ? makeSeats(msg.mode, baseHumans) : record.seats.map((s) => ({ ...s }));
+      const baseHumans: JoinedPlayerRef[] = record.seats
+        .filter((s) => s.occupant === 'human' && s.playerId)
+        .map((s) => ({ playerId: s.playerId!, playerName: s.playerName }));
+      const baseSeats = modeChanged ? makeSeats(msg.mode, baseHumans, record.hostId) : record.seats.map((s) => ({ ...s }));
       const filledSeats: SeatInfo[] = baseSeats.map((s) =>
         s.occupant === 'open' ? { ...s, occupant: 'bot', label: `${TEAM_LABELS[s.team]} (AI)`, connected: true } : s,
       );
@@ -195,7 +237,7 @@ export function handleRoomAction(
         };
       }
       const team = record.game.currentTeam;
-      const value = rollDie(random);
+      const value = rollSmartDie(record.game, random);
       const rolled = applyRoll(record.game, value);
       const next: RoomRecord = {
         ...record,

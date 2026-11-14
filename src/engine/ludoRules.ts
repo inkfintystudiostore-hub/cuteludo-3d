@@ -7,6 +7,7 @@ import {
   LAST_TRACK_PROGRESS,
   PAWNS_PER_TEAM,
   TEAM_IDS,
+  TRACK_LENGTH,
   YARD_PROGRESS,
   getHomePicnicPosition,
   getProgressPosition,
@@ -72,6 +73,126 @@ export function createGame(mode: GameMode): GameState {
 
 export function rollDie(random: () => number = Math.random): number {
   return Math.floor(random() * 6) + 1;
+}
+
+function isTrackPosThreatened(trackIndex: number, opponents: readonly Pawn[]): boolean {
+  if (isSafeTrackIndex(trackIndex)) return false;
+  for (const opp of opponents) {
+    const oppIdx = getTrackIndex(opp.team, opp.progress);
+    if (oppIdx === null) continue;
+    const steps = (trackIndex - oppIdx + TRACK_LENGTH) % TRACK_LENGTH;
+    if (steps >= 1 && steps <= 6 && opp.progress + steps <= LAST_TRACK_PROGRESS) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Computes per-face [1..6] weights so rolls stay lively: yard rescue 6s, capture snipes,
+ * chase pressure behind rivals, danger escapes, and home finishes—while staying fair and stochastic.
+ */
+export function getSmartDiceWeights(state: GameState): [number, number, number, number, number, number] {
+  const weights: [number, number, number, number, number, number] = [1, 1, 1, 1, 1, 1];
+  const team = state.currentTeam;
+  const myPawns = state.pawns.filter((p) => p.team === team);
+  const opponents = state.pawns.filter((p) => !areAllies(state.mode, team, p.team) && p.progress >= 0 && p.progress <= LAST_TRACK_PROGRESS);
+
+  const onBoardCount = myPawns.filter((p) => p.progress >= 0 && p.progress < HOME_PROGRESS).length;
+  const inYardCount = myPawns.filter((p) => p.progress === YARD_PROGRESS).length;
+
+  for (let face = 1; face <= 6; face++) {
+    let captureBonus = 0;
+    let homeBonus = 0;
+    let escapeBonus = 0;
+    let chaseBonus = 0;
+
+    for (const pawn of myPawns) {
+      const to = getMoveTarget(pawn, face);
+      if (to === null) continue;
+
+      if (to === HOME_PROGRESS) {
+        homeBonus = Math.max(homeBonus, 0.55);
+      }
+
+      const captures = findCapturesAt(state, pawn, to);
+      if (captures.length > 0) {
+        const deepTarget = captures.some((id) => {
+          const victim = state.pawns.find((p) => p.id === id);
+          return Boolean(victim && victim.progress >= 32);
+        });
+        captureBonus = Math.max(captureBonus, deepTarget ? 1.45 : 1.15);
+      }
+
+      const startIdx = getTrackIndex(team, pawn.progress);
+      const endIdx = getTrackIndex(team, to);
+      if (startIdx !== null && isTrackPosThreatened(startIdx, opponents)) {
+        if (to > LAST_TRACK_PROGRESS || (endIdx !== null && isSafeTrackIndex(endIdx))) {
+          escapeBonus = Math.max(escapeBonus, 0.9);
+        } else if (endIdx !== null && !isTrackPosThreatened(endIdx, opponents)) {
+          escapeBonus = Math.max(escapeBonus, 0.6);
+        }
+      }
+
+      if (endIdx !== null && captures.length === 0) {
+        for (const opp of opponents) {
+          const oppIdx = getTrackIndex(opp.team, opp.progress);
+          if (oppIdx === null || isSafeTrackIndex(oppIdx)) continue;
+          const gap = (oppIdx - endIdx + TRACK_LENGTH) % TRACK_LENGTH;
+          if (gap >= 1 && gap <= 6 && to + gap <= LAST_TRACK_PROGRESS) {
+            chaseBonus = Math.max(chaseBonus, 0.5);
+            break;
+          }
+        }
+      }
+    }
+
+    let w = 1 + captureBonus + homeBonus + escapeBonus + chaseBonus;
+    if (face === 6) {
+      if (onBoardCount === 0 && inYardCount > 0) w += 1.25;
+      else if (onBoardCount === 1 && inYardCount >= 2) w += 0.35;
+    }
+    weights[face - 1] = w;
+  }
+
+  // Subtle comeback / anti-runaway balance without ever skewing the board unfairly.
+  const teamProgress = (t: TeamId) =>
+    state.pawns
+      .filter((p) => p.team === t)
+      .reduce((sum, p) => sum + (p.progress === YARD_PROGRESS ? 0 : p.progress + 1), 0);
+  const myScore = teamProgress(team);
+  let bestOther = myScore;
+  for (const t of state.activeTeams) {
+    if (!areAllies(state.mode, team, t)) bestOther = Math.max(bestOther, teamProgress(t));
+  }
+  if (bestOther - myScore >= 35) {
+    weights[3] *= 1.12;
+    weights[4] *= 1.15;
+    weights[5] *= 1.18;
+  } else if (myScore - bestOther >= 45) {
+    weights[5] *= 0.88;
+  }
+
+  // Moderate back-to-back sixes so triple-6 forfeits stay tense rather than overly frequent.
+  if (state.sixStreak === 1) weights[5] *= 0.85;
+  else if (state.sixStreak >= 2) weights[5] *= 0.55;
+
+  for (let i = 0; i < 6; i++) {
+    weights[i] = Math.min(3.2, Math.max(0.45, weights[i]));
+  }
+  return weights;
+}
+
+/** Context-aware weighted dice roll (1..6) preserving ordered CDF so random=0.99 rolls 6. */
+export function rollSmartDie(state: GameState, random: () => number = Math.random): number {
+  const weights = getSmartDiceWeights(state);
+  const total = weights.reduce((sum, w) => sum + w, 0);
+  let cursor = Math.min(0.9999999999, Math.max(0, random())) * total;
+  for (let face = 1; face <= 6; face++) {
+    cursor -= weights[face - 1];
+    if (cursor < 0) return face;
+  }
+  return 6;
 }
 
 /** Progress a pawn would land on with this roll, or null if it cannot move. */
@@ -280,7 +401,7 @@ export function applyMove(state: GameState, pawnId: string): MoveResult {
     }
   }
 
-  const bonusRoll = winners.length === 0 && !teamDone && (dice === 6 || captured.length > 0);
+  const bonusRoll = winners.length === 0 && !teamDone && (dice === 6 || captured.length > 0 || reachedHome);
   const base: GameState = { ...state, pawns, rankings };
   let next: GameState;
   if (winners.length > 0) next = { ...base, phase: 'GAME_OVER', winners };

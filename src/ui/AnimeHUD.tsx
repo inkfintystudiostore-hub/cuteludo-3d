@@ -311,7 +311,8 @@ function StatusBadge({ team }: { team: TeamId }) {
   const seat = room?.online ? room.seats.find((s) => s.team === team) : undefined;
   const isMe = Boolean(room?.online && room.myTeam === team);
   const isBot = room?.online ? seat?.occupant === 'bot' : vsAi && team !== 'PINK';
-  const summary = `${TEAM_LABELS[team]}${isMe ? ' (You)' : isBot ? ' (AI)' : ''}: ${home} of ${PAWNS_PER_TEAM} home, ${yard} in the yard${rank ? `, finished ${rank}` : isTurn ? ', current turn' : ''}`;
+  const displayName = seat?.playerName || TEAM_LABELS[team];
+  const summary = `${displayName}${isMe ? ' (You)' : isBot ? ' (AI)' : ''}: ${home} of ${PAWNS_PER_TEAM} home, ${yard} in the yard${rank ? `, finished ${rank}` : isTurn ? ', current turn' : ''}`;
   return (
     <div style={{ gridArea: GRID_AREA[team] }} className={`flex ${onRight ? 'justify-end' : 'justify-start'} landscape:justify-center`}>
       <div
@@ -326,9 +327,9 @@ function StatusBadge({ team }: { team: TeamId }) {
         >
           <MascotIcon team={team} className="size-5" />
         </span>
-        <span aria-hidden className="leading-tight">
+        <span aria-hidden className="min-w-0 leading-tight">
           <span className="flex items-center gap-1 text-sm font-bold tracking-wide uppercase">
-            {TEAM_LABELS[team]}
+            <span className="max-w-22 truncate">{displayName}</span>
             {isMe && <span className="rounded bg-[#80ed99] px-1 text-[10px] font-bold">YOU</span>}
             {isBot && <span className="rounded bg-[#ffe0ea] px-1 text-[10px] font-bold">AI</span>}
           </span>
@@ -444,11 +445,14 @@ function DialogueDock() {
   const team = useGameStore((s) => s.game.currentTeam);
   const mode = useGameStore((s) => s.game.mode);
   const vsAi = useGameStore((s) => s.vsAi);
+  const room = useGameStore((s) => s.room);
   const simulation = useGameStore((s) => s.simulation);
   const notice = useGameStore((s) => s.notice);
   const [showLog, setShowLog] = useState(false);
 
-  const isBotTurn = !simulation && vsAi && team !== 'PINK';
+  const seat = room?.online ? room.seats.find((s) => s.team === team) : undefined;
+  const displayName = seat?.playerName || TEAM_LABELS[team];
+  const isBotTurn = room?.online ? seat?.occupant === 'bot' : !simulation && vsAi && team !== 'PINK';
   const effectiveShowLog = simulation || showLog;
 
   return (
@@ -461,7 +465,7 @@ function DialogueDock() {
         className="absolute -top-4 left-3 -skew-x-6 rounded-md border-[3px] border-ink px-2.5 py-0.5 text-sm font-bold tracking-wider whitespace-nowrap uppercase shadow-ink-sm"
         style={{ backgroundColor: TEAM_COLORS[team] }}
       >
-        {TEAM_LABELS[team]}
+        {displayName}
         {mode === '2V2_TEAM' && ` + ${TEAM_LABELS[PARTNER[team]]}`}
         {isBotTurn && ' (AI)'}
       </span>
@@ -721,6 +725,8 @@ function WinnerOverlay() {
             const rank = idx + 1;
             const meta = getPlacementMeta(rank, activeTeams.length, is2v2, winners.includes(team));
             const isMe = myTeam === team;
+            const seat = room?.online ? room.seats.find((s) => s.team === team) : undefined;
+            const displayName = seat?.playerName || TEAM_LABELS[team];
             return (
               <li
                 key={team}
@@ -738,7 +744,7 @@ function WinnerOverlay() {
                     <span className="rounded-md border border-ink bg-white px-1.5 py-0.5 text-[10px] font-bold uppercase">
                       {meta.badge}
                     </span>
-                    <span className="text-sm font-bold uppercase">{TEAM_LABELS[team]}</span>
+                    <span className="text-sm font-bold uppercase">{displayName}</span>
                     {isMe && <span className="rounded bg-[#80ed99] px-1 text-[10px] font-bold">YOU</span>}
                   </div>
                   <p className="mt-0.5 text-[11px] leading-tight font-semibold text-ink/80">{meta.roast}</p>

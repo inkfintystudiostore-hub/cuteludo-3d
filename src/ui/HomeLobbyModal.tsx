@@ -7,12 +7,16 @@ import { useEffect, useState } from 'react';
 import { TEAM_COLORS, TEAM_LABELS, type TeamId } from '../engine/boardMap';
 import { useGameStore } from '../engine/gameStore';
 import { MODE_TEAMS, type GameMode } from '../engine/ludoRules';
+import type { SeatInfo } from '../engine/multiplayerProtocol';
 import {
   connectMultiplayerRoom,
   disconnectMultiplayerRoom,
+  loadPlayerDisplayName,
   notifyParentRoomCode,
   reserveUniqueRoomCode,
+  savePlayerDisplayName,
   sendRoomMode,
+  sendRoomName,
   sendRoomStart,
 } from '../engine/multiplayerClient';
 import { buildRoomShareUrl, formatRoomCode, parseRoomCodeInput, resolveShareBaseUrl } from '../engine/roomCode';
@@ -43,6 +47,64 @@ function readInitialRoomFromUrl(): string | null {
   return parseRoomCodeInput(window.location.search);
 }
 
+function RoomSeatsRoster({
+  seats,
+  activeTeams,
+  myTeam,
+  hostFallbackName,
+}: {
+  seats?: SeatInfo[];
+  activeTeams: TeamId[];
+  myTeam: TeamId | null;
+  hostFallbackName?: string;
+}) {
+  const effectiveSeats: SeatInfo[] =
+    seats && seats.length > 0
+      ? seats
+      : activeTeams.map((team, idx) => ({
+          team,
+          occupant: idx === 0 ? 'human' : 'open',
+          playerId: idx === 0 ? 'local-host' : null,
+          playerName: idx === 0 ? hostFallbackName || undefined : undefined,
+          label: idx === 0 ? (hostFallbackName ? `${hostFallbackName} (Host)` : `${TEAM_LABELS[team]} (Host)`) : 'Waiting…',
+          connected: idx === 0,
+        }));
+
+  return (
+    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+      {effectiveSeats.map((seat) => {
+        const joined = seat.occupant === 'human';
+        const isMe = myTeam === seat.team;
+        return (
+          <div
+            key={seat.team}
+            className={`flex items-center gap-1.5 rounded-xl border-2 px-2 py-1.5 text-[11px] font-bold ${
+              joined ? 'border-ink bg-[#fff8f0]' : 'border-dashed border-ink/30 bg-[#fff8f5] text-ink/55'
+            }`}
+          >
+            <span
+              className="grid size-5 shrink-0 place-items-center rounded-md border border-ink"
+              style={{ backgroundColor: TEAM_COLORS[seat.team] }}
+            >
+              <MascotIcon team={seat.team} className="size-3 text-ink" />
+            </span>
+            <div className="min-w-0 flex-1 leading-tight">
+              <div className="flex items-center gap-1">
+                <span className="truncate">{joined ? seat.label : 'Waiting…'}</span>
+              </div>
+              <div className="flex items-center gap-1 text-[9px] font-semibold uppercase">
+                <span>{TEAM_LABELS[seat.team]}</span>
+                {isMe && <span className="rounded bg-[#80ed99] px-1 text-ink">YOU</span>}
+                {joined && seat.connected && <span className="size-1.5 rounded-full bg-[#2b9348]" title="Online" />}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function HomeLobbyModal() {
   const screen = useGameStore((s) => s.screen);
   const room = useGameStore((s) => s.room);
@@ -54,6 +116,7 @@ export function HomeLobbyModal() {
 
   const [createdCode, setCreatedCode] = useState<string | null>(null);
   const [reservingRoom, setReservingRoom] = useState(false);
+  const [playerName, setPlayerName] = useState<string>(() => loadPlayerDisplayName());
   const [joinInput, setJoinInput] = useState<string>(() => {
     const urlCode = readInitialRoomFromUrl();
     return urlCode ? formatRoomCode(urlCode) : '';
@@ -68,6 +131,14 @@ export function HomeLobbyModal() {
       setFormat(useGameStore.getState().game.mode);
     }
   }, [screen, room]);
+
+  // Live-sync name edits while waiting inside an active private room.
+  useEffect(() => {
+    savePlayerDisplayName(playerName);
+    if (!room?.online || room.started) return;
+    const timer = setTimeout(() => sendRoomName(playerName), 240);
+    return () => clearTimeout(timer);
+  }, [playerName, room?.online, room?.started]);
 
   if (screen !== 'home') return null;
 
@@ -109,7 +180,7 @@ export function HomeLobbyModal() {
     try {
       const code = await reserveUniqueRoomCode(format);
       setCreatedCode(code);
-      connectMultiplayerRoom(code, 'host', format);
+      connectMultiplayerRoom(code, 'host', format, playerName);
     } finally {
       setReservingRoom(false);
     }
@@ -136,7 +207,7 @@ export function HomeLobbyModal() {
       return;
     }
     setJoinError(null);
-    connectMultiplayerRoom(parsed, 'guest', format);
+    connectMultiplayerRoom(parsed, 'guest', format, playerName);
   };
 
   const handleLeaveLobbyRoom = () => {
@@ -159,8 +230,12 @@ export function HomeLobbyModal() {
   };
 
   const activeTeams: TeamId[] = [...MODE_TEAMS[format]];
+  const isHostLobby = Boolean(!room?.started && (createdCode || room?.role === 'host'));
   const connectedGuestWaiting = room?.role === 'guest' && room.online && !room.started;
   const offlineFallbackReady = room?.role === 'guest' && room.status === 'offline';
+  const joinedHumanCount = room?.seats?.length
+    ? room.seats.filter((s) => s.occupant === 'human').length
+    : 1;
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-ink/38 p-3 backdrop-blur-xs sm:p-4">
@@ -274,6 +349,93 @@ export function HomeLobbyModal() {
               Start Game
             </button>
           </div>
+        ) : isHostLobby && liveCode ? (
+          /* Host Private Room Lobby: live player roster + share controls + Start Game anytime */
+          <div className="flex flex-col gap-2.5 rounded-2xl border-[3px] border-ink bg-white p-3.5 shadow-ink-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-bold tracking-wider text-ink/65 uppercase">Private Room Lobby</span>
+                  <span
+                    className={`rounded-full border border-ink px-2 py-0.5 text-[10px] font-bold uppercase ${
+                      room?.status === 'connected' ? 'bg-[#80ed99]' : room?.status === 'connecting' ? 'bg-[#ffd875]' : 'bg-[#ffe0ea]'
+                    }`}
+                  >
+                    {room?.status === 'connected'
+                      ? `Live • ${joinedHumanCount}/${activeTeams.length} Joined`
+                      : room?.status === 'connecting'
+                        ? 'Connecting…'
+                        : 'Local Preview'}
+                  </span>
+                </div>
+                <div className="font-mono text-xl font-bold tracking-wider tabular-nums">{formatRoomCode(liveCode)}</div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleLeaveLobbyRoom}
+                className={`rounded-xl bg-[#ffe0ea] px-3 py-1.5 text-xs font-bold uppercase ${INK_BTN}`}
+              >
+                Close Room
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+              <button
+                type="button"
+                onClick={() => copyText(liveCode, 'code')}
+                className={`flex min-h-8 items-center justify-center gap-1 rounded-xl bg-white px-2 text-xs font-bold ${INK_BTN}`}
+              >
+                {copiedKind === 'code' ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+                {copiedKind === 'code' ? 'Copied Code' : 'Copy Code'}
+              </button>
+              <button
+                type="button"
+                onClick={() => copyText(shareUrl, 'link')}
+                className={`flex min-h-8 items-center justify-center gap-1 rounded-xl bg-[#a9f0ff] px-2 text-xs font-bold ${INK_BTN}`}
+              >
+                {copiedKind === 'link' ? <CheckIcon className="size-3.5" /> : <LinkIcon className="size-3.5" />}
+                {copiedKind === 'link' ? 'Copied Link!' : 'Copy Invite Link'}
+              </button>
+              <input
+                type="text"
+                aria-label="Your display name"
+                maxLength={18}
+                placeholder="Your name (Host)"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                className="col-span-2 rounded-xl border-2 border-ink bg-[#fff8f5] px-2.5 py-1 text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none sm:col-span-1"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between text-[11px] font-bold tracking-wider text-ink/70 uppercase">
+                <span>Joined Players</span>
+                <span>
+                  {joinedHumanCount} / {activeTeams.length} Ready
+                </span>
+              </div>
+              <RoomSeatsRoster
+                seats={room?.seats}
+                activeTeams={activeTeams}
+                myTeam={room?.myTeam ?? activeTeams[0]}
+                hostFallbackName={playerName.trim()}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleStartHostedRoom}
+              className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl px-4 text-sm font-bold tracking-wide uppercase sm:text-base ${INK_BTN} ${
+                joinedHumanCount >= activeTeams.length ? 'bg-[#80ed99]' : 'bg-[#ff8fab]'
+              }`}
+            >
+              <PlayIcon className="size-4" />
+              {joinedHumanCount >= activeTeams.length
+                ? `Start Game (All ${activeTeams.length} Joined!)`
+                : `Start Game (${joinedHumanCount}/${activeTeams.length} Joined — Bots Fill Empty)`}
+            </button>
+          </div>
         ) : connectedGuestWaiting ? (
           /* Joined Friend Waiting View */
           <div className="flex flex-col gap-2.5 rounded-2xl border-[3px] border-ink bg-white p-3.5 shadow-ink-sm">
@@ -282,27 +444,34 @@ export function HomeLobbyModal() {
                 <span className="text-[10px] font-bold tracking-wider text-ink/65 uppercase">Connected to Live Room</span>
                 <div className="font-mono text-lg font-bold tracking-wider">{formatRoomCode(room.code)}</div>
               </div>
-              {room.myTeam && (
-                <span
-                  className="rounded-xl border-2 border-ink px-2.5 py-1 text-xs font-bold uppercase"
-                  style={{ backgroundColor: TEAM_COLORS[room.myTeam] }}
-                >
-                  You: {TEAM_LABELS[room.myTeam]}
-                </span>
-              )}
+              <div className="flex items-center gap-1.5">
+                {room.myTeam && (
+                  <span
+                    className="rounded-xl border-2 border-ink px-2.5 py-1 text-xs font-bold uppercase"
+                    style={{ backgroundColor: TEAM_COLORS[room.myTeam] }}
+                  >
+                    You: {TEAM_LABELS[room.myTeam]}
+                  </span>
+                )}
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-              {room.seats.map((seat) => (
-                <div
-                  key={seat.team}
-                  className="flex items-center gap-1.5 rounded-xl border-2 border-ink/25 bg-[#fff8f0] px-2 py-1.5 text-[11px] font-bold"
-                >
-                  <span className="size-2.5 shrink-0 rounded-full border border-ink" style={{ backgroundColor: TEAM_COLORS[seat.team] }} />
-                  <span className="truncate">{seat.occupant === 'human' ? seat.label : 'Waiting…'}</span>
-                </div>
-              ))}
+            <div className="flex items-center gap-2">
+              <label htmlFor="guest-name-input" className="text-[11px] font-bold tracking-wider text-ink/70 uppercase">
+                Name
+              </label>
+              <input
+                id="guest-name-input"
+                type="text"
+                maxLength={18}
+                placeholder="Your name"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-[#fff8f5] px-2.5 py-1 text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none"
+              />
             </div>
+
+            <RoomSeatsRoster seats={room.seats} activeTeams={activeTeams} myTeam={room.myTeam} />
 
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-ink/75">Waiting for host to launch the match…</span>
@@ -317,84 +486,39 @@ export function HomeLobbyModal() {
           </div>
         ) : (
           <div className="grid gap-2.5 sm:grid-cols-2">
+            {/* Shared Player Name Bar */}
+            <div className="flex items-center gap-2 rounded-2xl border-[3px] border-ink bg-white px-3 py-2 shadow-ink-sm sm:col-span-2">
+              <label htmlFor="lobby-player-name" className="shrink-0 text-[11px] font-bold tracking-wider text-ink/75 uppercase">
+                Your Name
+              </label>
+              <input
+                id="lobby-player-name"
+                type="text"
+                maxLength={18}
+                placeholder="Enter display name (optional)"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-[#fff8f5] px-2.5 py-1 text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none"
+              />
+            </div>
+
             {/* Create Room Panel */}
             <div className="flex flex-col justify-between gap-2 rounded-2xl border-[3px] border-ink bg-white p-3 shadow-ink-sm">
               <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between gap-1">
-                  <h2 className="text-xs font-bold tracking-wide uppercase sm:text-sm">Create Room</h2>
-                  {room && (
-                    <span
-                      className={`rounded-full border border-ink px-1.5 py-0.5 text-[10px] font-bold uppercase ${
-                        room.status === 'connected' ? 'bg-[#80ed99]' : room.status === 'connecting' ? 'bg-[#ffd875]' : 'bg-[#ffe0ea]'
-                      }`}
-                    >
-                      {room.status === 'connected' ? `Live (${room.peers})` : room.status === 'connecting' ? 'Connecting' : 'Local'}
-                    </span>
-                  )}
-                </div>
-
-                {!createdCode ? (
-                  <p className="text-xs font-medium text-ink/75">
-                    Generate a 9-digit room code &amp; share link to invite friends.
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    <div className="rounded-xl border-2 border-ink bg-[#fff8f0] px-2 py-1 text-center">
-                      <span className="block text-[10px] font-bold tracking-wider text-ink/65 uppercase">
-                        9-Digit Code ({room?.peers ?? 1} ready)
-                      </span>
-                      <span className="font-mono text-base font-bold tracking-wider tabular-nums sm:text-lg">
-                        {formatRoomCode(createdCode)}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => copyText(createdCode, 'code')}
-                        className={`flex min-h-7 items-center justify-center gap-1 rounded-xl bg-white px-2 text-xs font-bold ${INK_BTN}`}
-                      >
-                        {copiedKind === 'code' ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-                        {copiedKind === 'code' ? 'Copied' : 'Copy Code'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => copyText(shareUrl, 'link')}
-                        className={`flex min-h-7 items-center justify-center gap-1 rounded-xl bg-[#a9f0ff] px-2 text-xs font-bold ${INK_BTN}`}
-                      >
-                        {copiedKind === 'link' ? <CheckIcon className="size-3.5" /> : <LinkIcon className="size-3.5" />}
-                        {copiedKind === 'link' ? 'Copied!' : 'Copy Link'}
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      readOnly
-                      aria-label="Shareable invite link"
-                      value={shareUrl}
-                      onFocus={(e) => e.currentTarget.select()}
-                      className="w-full rounded-lg border-2 border-ink/25 bg-[#fff8f5] px-2 py-0.5 text-[11px] font-medium text-ink/80"
-                    />
-                  </div>
-                )}
+                <h2 className="text-xs font-bold tracking-wide uppercase sm:text-sm">Create Private Room</h2>
+                <p className="text-xs font-medium text-ink/75">
+                  Generate a 9-digit room code, see friends join live, and hit Start Game when everyone is ready.
+                </p>
               </div>
 
-              {!createdCode ? (
-                <button
-                  type="button"
-                  disabled={reservingRoom}
-                  onClick={handleCreateRoom}
-                  className={`min-h-9 w-full rounded-xl bg-[#ffd875] px-3 text-sm font-bold uppercase disabled:opacity-60 ${INK_BTN}`}
-                >
-                  {reservingRoom ? 'Reserving…' : 'Generate Room Code'}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleStartHostedRoom}
-                  className={`min-h-9 w-full rounded-xl bg-[#ff8fab] px-3 text-sm font-bold uppercase ${INK_BTN}`}
-                >
-                  Open Room Board
-                </button>
-              )}
+              <button
+                type="button"
+                disabled={reservingRoom}
+                onClick={handleCreateRoom}
+                className={`min-h-9 w-full rounded-xl bg-[#ffd875] px-3 text-sm font-bold uppercase disabled:opacity-60 ${INK_BTN}`}
+              >
+                {reservingRoom ? 'Creating Room…' : 'Create Private Room'}
+              </button>
             </div>
 
             {/* Join Room Panel */}
@@ -459,7 +583,7 @@ export function HomeLobbyModal() {
             </div>
 
             <p className="sm:col-span-2 rounded-xl border-2 border-ink/20 bg-white/80 px-2.5 py-1 text-center text-[11px] font-semibold text-ink/75">
-              {room?.statusNote ?? 'Powered by Cloudflare Durable Objects Free Tier — empty room seats automatically run smart bots.'}
+              {room?.statusNote ?? 'Share your 9-digit room code — empty seats automatically run smart bots if you start early.'}
             </p>
           </div>
         )}

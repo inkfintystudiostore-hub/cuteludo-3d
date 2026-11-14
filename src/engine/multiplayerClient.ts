@@ -45,6 +45,26 @@ export async function reserveUniqueRoomCode(mode: GameMode): Promise<string> {
   return generateRoomCode();
 }
 
+const NAME_STORAGE_KEY = 'chibi-ludo-name';
+
+export function loadPlayerDisplayName(): string {
+  try {
+    return localStorage.getItem(NAME_STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function savePlayerDisplayName(name: string): void {
+  try {
+    const trimmed = name.trim().slice(0, 18);
+    if (trimmed) localStorage.setItem(NAME_STORAGE_KEY, trimmed);
+    else localStorage.removeItem(NAME_STORAGE_KEY);
+  } catch {
+    // Ignore storage unavailability.
+  }
+}
+
 function getPlayerId(): string {
   const key = 'chibi-ludo-pid';
   try {
@@ -86,7 +106,7 @@ export function disconnectMultiplayerRoom(): void {
   }
 }
 
-export function connectMultiplayerRoom(code: string, role: 'host' | 'guest', mode: GameMode): void {
+export function connectMultiplayerRoom(code: string, role: 'host' | 'guest', mode: GameMode, playerName?: string): void {
   if (socket && activeCode === code && socket.readyState <= WebSocket.OPEN) return;
 
   disconnectMultiplayerRoom();
@@ -94,11 +114,13 @@ export function connectMultiplayerRoom(code: string, role: 'host' | 'guest', mod
   activeCode = code;
   notifyParentRoomCode(code);
 
+  const cleanName = (playerName ?? loadPlayerDisplayName()).trim().slice(0, 18);
   const store = useGameStore.getState();
   store.initRoomSession({ code, role, online: false, status: 'connecting', statusNote: 'Connecting to live server…' });
 
   const playerId = getPlayerId();
-  const url = `${getWsOrigin()}/ws/room/${code}?pid=${encodeURIComponent(playerId)}&mode=${encodeURIComponent(mode)}`;
+  const nameParam = cleanName ? `&name=${encodeURIComponent(cleanName)}` : '';
+  const url = `${getWsOrigin()}/ws/room/${code}?pid=${encodeURIComponent(playerId)}&mode=${encodeURIComponent(mode)}${nameParam}`;
 
   let ws: WebSocket;
   try {
@@ -120,7 +142,7 @@ export function connectMultiplayerRoom(code: string, role: 'host' | 'guest', mod
   ws.addEventListener('open', () => {
     if (socket !== ws) return;
     useGameStore.getState().setRoomConnectionStatus('connected', 'Connected to live Cloudflare room');
-    send({ type: 'join', playerId });
+    send({ type: 'join', playerId, name: cleanName || undefined });
   });
 
   ws.addEventListener('message', (event) => {
@@ -168,6 +190,11 @@ export function connectMultiplayerRoom(code: string, role: 'host' | 'guest', mod
 
 export function sendRoomMode(mode: GameMode): void {
   send({ type: 'set_mode', mode });
+}
+
+export function sendRoomName(name: string): void {
+  savePlayerDisplayName(name);
+  send({ type: 'set_name', name: name.trim().slice(0, 18) });
 }
 
 export function sendRoomStart(mode: GameMode): void {
