@@ -1,5 +1,5 @@
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ComponentRef, type ReactNode } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Environment, Lightformer, OrbitControls } from '@react-three/drei';
 import { Bloom, EffectComposer } from '@react-three/postprocessing';
 import * as THREE from 'three';
@@ -33,14 +33,38 @@ const ELEVATION = THREE.MathUtils.degToRad(47);
 /** Room above the far edge for pawns standing and hopping there. */
 const HEADROOM = 1.15;
 
-/** Pulls the camera back just far enough to frame the whole board with damped orbit controls. */
+/** Idle time before an orbited/zoomed board camera glides back to its original framing. */
+const CAMERA_AUTO_RESET_MS = 3000;
+const ORIGIN = new THREE.Vector3(0, 0, 0);
+
+/** Pulls the camera back just far enough to frame the whole board, and auto-returns 3s after manual orbit/zoom. */
 function CameraRig() {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
+  const gl = useThree((s) => s.gl);
   const width = useThree((s) => s.size.width);
   const height = useThree((s) => s.size.height);
   const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null);
+  const defaultPosRef = useRef(new THREE.Vector3(0, 14, 14));
+  const isInteractingRef = useRef(false);
+  const isProgrammaticUpdateRef = useRef(false);
+  const isReturningRef = useRef(false);
+  const lastInteractionAtRef = useRef(0);
+  const needsAutoReturnRef = useRef(false);
+  const curSphericalRef = useRef(new THREE.Spherical());
+  const dstSphericalRef = useRef(new THREE.Spherical());
 
   const cameraResetTick = useGameStore((s) => s.cameraResetTick);
+
+  useEffect(() => {
+    const dom = gl.domElement;
+    const onWheel = () => {
+      lastInteractionAtRef.current = performance.now();
+      isReturningRef.current = false;
+      needsAutoReturnRef.current = true;
+    };
+    dom.addEventListener('wheel', onWheel, { passive: true });
+    return () => dom.removeEventListener('wheel', onWheel);
+  }, [gl]);
 
   useLayoutEffect(() => {
     if (width < 2 || height < 2) return;
@@ -58,16 +82,67 @@ function CameraRig() {
     const fitWidth = radius / (tanHalf * aspect) + nearEdge;
     const distance = Math.max(fitHeight, fitWidth);
 
+    defaultPosRef.current.set(0, Math.sin(elevation) * distance, Math.cos(elevation) * distance);
+    isProgrammaticUpdateRef.current = true;
     camera.fov = fov;
-    camera.position.set(0, Math.sin(elevation) * distance, Math.cos(elevation) * distance);
-    camera.lookAt(0, 0, 0);
+    camera.position.copy(defaultPosRef.current);
+    camera.lookAt(ORIGIN);
     camera.updateProjectionMatrix();
 
     if (controlsRef.current) {
-      controlsRef.current.target.set(0, 0, 0);
+      controlsRef.current.target.copy(ORIGIN);
+      controlsRef.current.enableDamping = false;
       controlsRef.current.update();
+      controlsRef.current.enableDamping = true;
     }
+    needsAutoReturnRef.current = false;
+    isReturningRef.current = false;
+    isInteractingRef.current = false;
+    isProgrammaticUpdateRef.current = false;
   }, [camera, width, height, cameraResetTick]);
+
+  useFrame((_, delta) => {
+    if (!needsAutoReturnRef.current || isInteractingRef.current || !controlsRef.current) return;
+    if (performance.now() - lastInteractionAtRef.current < CAMERA_AUTO_RESET_MS) return;
+
+    isProgrammaticUpdateRef.current = true;
+    if (!isReturningRef.current) {
+      // Zero leftover OrbitControls damping inertia before gliding back.
+      controlsRef.current.enableDamping = false;
+      controlsRef.current.update();
+      controlsRef.current.enableDamping = true;
+      isReturningRef.current = true;
+    }
+
+    const cur = curSphericalRef.current.setFromVector3(camera.position);
+    const dst = dstSphericalRef.current.setFromVector3(defaultPosRef.current);
+    let dTheta = dst.theta - cur.theta;
+    while (dTheta > Math.PI) dTheta -= Math.PI * 2;
+    while (dTheta < -Math.PI) dTheta += Math.PI * 2;
+
+    const alpha = 1 - Math.exp(-9.0 * Math.min(delta, 0.05));
+    cur.radius += (dst.radius - cur.radius) * alpha;
+    cur.phi += (dst.phi - cur.phi) * alpha;
+    cur.theta += dTheta * alpha;
+
+    camera.position.setFromSpherical(cur);
+    controlsRef.current.target.lerp(ORIGIN, alpha);
+    camera.lookAt(controlsRef.current.target);
+    controlsRef.current.enableDamping = false;
+    controlsRef.current.update();
+    controlsRef.current.enableDamping = true;
+
+    if (camera.position.distanceToSquared(defaultPosRef.current) < 0.002) {
+      camera.position.copy(defaultPosRef.current);
+      controlsRef.current.target.copy(ORIGIN);
+      controlsRef.current.enableDamping = false;
+      controlsRef.current.update();
+      controlsRef.current.enableDamping = true;
+      needsAutoReturnRef.current = false;
+      isReturningRef.current = false;
+    }
+    isProgrammaticUpdateRef.current = false;
+  });
 
   return (
     <OrbitControls
@@ -80,6 +155,19 @@ function CameraRig() {
       maxDistance={90}
       minPolarAngle={THREE.MathUtils.degToRad(16)}
       maxPolarAngle={THREE.MathUtils.degToRad(68)}
+      onStart={() => {
+        isInteractingRef.current = true;
+        isReturningRef.current = false;
+        needsAutoReturnRef.current = false;
+      }}
+      onEnd={() => {
+        isInteractingRef.current = false;
+        isReturningRef.current = false;
+        lastInteractionAtRef.current = performance.now();
+        if (camera.position.distanceToSquared(defaultPosRef.current) > 0.002) {
+          needsAutoReturnRef.current = true;
+        }
+      }}
     />
   );
 }
@@ -101,7 +189,7 @@ export function LudoCanvas() {
         key={canvasKey}
         flat
         shadows
-        dpr={[1, 1.5]}
+        dpr={[1, 2.5]}
         camera={{ fov: FOV, near: 0.5, far: 300 }}
         gl={{ antialias: true, powerPreference: 'high-performance', failIfMajorPerformanceCaveat: false }}
         onCreated={({ gl, scene, camera }) => {
@@ -126,7 +214,7 @@ export function LudoCanvas() {
         <color attach="background" args={[SCENE_BACKGROUND]} />
         <CameraRig />
         {/* Offline procedural studio reflection rig for crisp figurine highlights. */}
-        <Environment frames={1} resolution={128} environmentIntensity={0.44}>
+        <Environment frames={1} resolution={256} environmentIntensity={0.44}>
           <Lightformer form="rect" intensity={1.4} color="#fff7ec" position={[5, 10, 6]} scale={[12, 8, 1]} target={[0, 0, 0]} />
           <Lightformer form="circle" intensity={1.1} color="#e6d6ff" position={[-8, 6, -6]} scale={9} target={[0, 0, 0]} />
           <Lightformer form="ring" intensity={0.85} color="#ffd8e6" position={[0, 8, -9]} scale={8} target={[0, 0, 0]} />
@@ -140,7 +228,7 @@ export function LudoCanvas() {
           color="#fff6e6"
           intensity={2.1}
           position={[9, 17, 8]}
-          shadow-mapSize={[1024, 1024]}
+          shadow-mapSize={[2048, 2048]}
           shadow-bias={-0.0004}
           shadow-normalBias={0.015}
           shadow-radius={2.5}
@@ -155,7 +243,7 @@ export function LudoCanvas() {
           <AnimeEffects />
         </group>
         <PostProcessingErrorBoundary>
-          <EffectComposer multisampling={0}>
+          <EffectComposer multisampling={4}>
             <Bloom mipmapBlur luminanceThreshold={1.2} luminanceSmoothing={0.2} intensity={0.85} />
           </EffectComposer>
         </PostProcessingErrorBoundary>

@@ -51,7 +51,7 @@ const PIP_LAYOUT: Record<number, [number, number][]> = {
 };
 
 function makeFaceTexture(value: number): THREE.CanvasTexture {
-  const s = 256;
+  const s = 512;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d')!;
@@ -120,7 +120,9 @@ function makeFaceTexture(value: number): THREE.CanvasTexture {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.anisotropy = 8;
   return texture;
 }
 
@@ -254,8 +256,8 @@ export function DiceTray({ className = '' }: { className?: string }) {
       <Canvas
         key={canvasKey}
         flat
-        dpr={[1, 1.5]}
-        gl={{ powerPreference: 'high-performance', failIfMajorPerformanceCaveat: false }}
+        dpr={[1, 2.5]}
+        gl={{ antialias: true, powerPreference: 'high-performance', failIfMajorPerformanceCaveat: false }}
         camera={{ position: [0, 3.3, 2.5], fov: 34 }}
         onCreated={({ gl, camera }) => {
           cleanupCanvasRef.current?.();

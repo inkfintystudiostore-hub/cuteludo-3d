@@ -20,7 +20,7 @@ export function getAnimeEyeTexture(mood: EyeMood, irisColor = '#2b213a'): THREE.
   const cached = eyeCache.get(key);
   if (cached) return cached;
 
-  const s = 512;
+  const s = 1024;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d')!;
@@ -115,18 +115,20 @@ export function getAnimeEyeTexture(mood: EyeMood, irisColor = '#2b213a'): THREE.
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.anisotropy = 8;
   eyeCache.set(key, texture);
   return texture;
 }
 
-/** Smooth 512px coat texture with soft ambient fur gradients and species markings. */
+/** Smooth 1K coat texture with soft ambient fur gradients and species markings. */
 export function getAnimalCoatTexture(species: AnimalSpecies, coatColor: string): THREE.CanvasTexture {
   const key = `${species}|${coatColor}`;
   const cached = coatCache.get(key);
   if (cached) return cached;
 
-  const s = 512;
+  const s = 1024;
   const k = s / 2048;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
@@ -175,15 +177,17 @@ export function getAnimalCoatTexture(species: AnimalSpecies, coatColor: string):
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.anisotropy = 8;
   coatCache.set(key, texture);
   return texture;
 }
 
-/** Shared seamless 256px plush microfiber bump map for tactile velvety depth. */
+/** Shared seamless 512px plush microfiber bump map for tactile velvety depth. */
 export function getAnimalFurBumpTexture(): THREE.CanvasTexture {
   if (furBumpCache) return furBumpCache;
-  const s = 256;
+  const s = 512;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d')!;
@@ -207,7 +211,7 @@ export function getAnimalFurBumpTexture(): THREE.CanvasTexture {
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(3, 3);
-  texture.anisotropy = 2;
+  texture.anisotropy = 4;
   furBumpCache = texture;
   return texture;
 }
@@ -218,7 +222,7 @@ export function getOutfitTexture(slot: number, baseColor: string, accentColor: s
   const cached = outfitCache.get(key);
   if (cached) return cached;
 
-  const s = 512;
+  const s = 1024;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d')!;
@@ -279,7 +283,9 @@ export function getOutfitTexture(slot: number, baseColor: string, accentColor: s
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.anisotropy = 8;
   outfitCache.set(key, texture);
   return texture;
 }

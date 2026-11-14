@@ -165,7 +165,17 @@ function TopLeftGameMenu() {
   const [copiedLink, setCopiedLink] = useState(false);
   const [toastChatId, setToastChatId] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const wasChatOpenRef = useRef(chatOpen);
   const latestChat = chatMessages[chatMessages.length - 1] ?? null;
+
+  useEffect(() => {
+    // When closing chat, release input focus and reset any soft-keyboard scroll shift so the HUD and board stay in their original state.
+    if (wasChatOpenRef.current && !chatOpen) {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      window.scrollTo(0, 0);
+    }
+    wasChatOpenRef.current = chatOpen;
+  }, [chatOpen]);
 
   useEffect(() => {
     if (!latestChat || chatOpen) return;
@@ -417,7 +427,12 @@ function StatusBadge({ team }: { team: TeamId }) {
   const displayName = seat?.playerName || TEAM_LABELS[team];
   const summary = `${displayName}${isMe ? ' (You)' : isBot ? ' (AI)' : ''}: ${home} of ${PAWNS_PER_TEAM} home, ${yard} in the yard${rank ? `, finished ${rank}` : isTurn ? ', current turn' : ''}`;
   return (
-    <div style={{ gridArea: corner }} className={`flex ${onRight ? 'justify-end' : 'justify-start'} landscape:justify-center`}>
+    <div
+      style={{ gridArea: corner }}
+      className={`flex items-center ${onRight ? 'justify-end' : 'justify-start'} landscape:justify-center ${
+        corner === 'tl' || corner === 'tr' ? 'self-start' : 'self-end'
+      }`}
+    >
       <div
         role="status"
         aria-label={summary}
@@ -935,6 +950,7 @@ function useTurnAndEventHaptics() {
     if (lastTurnTeamRef.current !== currentTeam) {
       if (canRollNow) {
         triggerHaptic('MY_TURN');
+        useGameStore.getState().triggerCameraReset();
         lastTurnTeamRef.current = currentTeam;
       } else if (!canLocalPlayerAct({ screen, paused, simulation, vsAi, isAnimating: false, game: useGameStore.getState().game, room })) {
         // Track opponent turn changes cleanly so returning to the local player's roll always triggers haptic.

@@ -397,7 +397,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     clearServerAck();
     set({ roomAlert });
   },
-  setChatOpen: (chatOpen) => set((s) => ({ chatOpen, unreadChat: chatOpen ? 0 : s.unreadChat })),
+  setChatOpen: (chatOpen) =>
+    set((s) => ({
+      chatOpen,
+      unreadChat: chatOpen ? 0 : s.unreadChat,
+      cameraResetTick: !chatOpen && s.chatOpen ? s.cameraResetTick + 1 : s.cameraResetTick,
+    })),
 
   pushChatMessage: (chat) =>
     set((s) => ({

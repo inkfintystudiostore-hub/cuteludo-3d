@@ -791,4 +791,15 @@ describe('multiplayer roomLogic', () => {
     expect(useGameStore.getState().game.phase).toBe(room.game.phase);
     expect(useGameStore.getState().game.pawns).toEqual(staleBefore.pawns);
   });
+
+  it('resets the board camera tick whenever the live chat drawer closes', () => {
+    useGameStore.getState().setChatOpen(false);
+    const baselineTick = useGameStore.getState().cameraResetTick;
+    useGameStore.getState().setChatOpen(true);
+    expect(useGameStore.getState().cameraResetTick).toBe(baselineTick);
+    useGameStore.getState().setChatOpen(false);
+    expect(useGameStore.getState().cameraResetTick).toBe(baselineTick + 1);
+    useGameStore.getState().setChatOpen(false);
+    expect(useGameStore.getState().cameraResetTick).toBe(baselineTick + 1);
+  });
 });

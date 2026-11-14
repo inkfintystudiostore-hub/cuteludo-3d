@@ -27,8 +27,8 @@ export function RoomChatBox({ compact = false }: { compact?: boolean }) {
         ref={listRef}
         aria-live="polite"
         aria-label="Room live chat messages"
-        className={`flex flex-col gap-1 overflow-y-auto rounded-xl border-2 border-ink/25 bg-[#fff8f5] p-2 text-xs ${
-          compact ? 'max-h-24 min-h-14' : 'h-44'
+        className={`flex flex-col gap-1 overflow-y-auto overscroll-contain rounded-xl border-2 border-ink/25 bg-[#fff8f5] p-2 text-xs ${
+          compact ? 'max-h-24 min-h-14' : 'max-h-[34vh] h-40 landscape:h-28'
         }`}
       >
         {messages.length === 0 ? (
@@ -59,7 +59,7 @@ export function RoomChatBox({ compact = false }: { compact?: boolean }) {
           onChange={(e) => setDraft(e.target.value)}
           placeholder={online ? 'Type a quick message…' : 'Offline preview'}
           aria-label="Chat message"
-          className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-white px-2.5 py-1 text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none disabled:opacity-55"
+          className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-white px-2.5 py-1 text-[16px] leading-5 sm:text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none disabled:opacity-55"
         />
         <button
           type="submit"

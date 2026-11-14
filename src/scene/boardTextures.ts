@@ -11,10 +11,25 @@ let tableMatTexture: THREE.CanvasTexture | null = null;
 let picnicBlanketTexture: THREE.CanvasTexture | null = null;
 const emblemTextures = new Map<TeamId, THREE.CanvasTexture>();
 
-/** Warm birch/maple wood grain texture for the board frame and base. */
+function createCrispBoardTexture(canvas: HTMLCanvasElement, repeat = false, anisotropy = 8): THREE.CanvasTexture {
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = anisotropy;
+  if (repeat) {
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+  }
+  return texture;
+}
+
+/** 2K birch/maple wood grain texture with fine fiber detail for 4K board rendering. */
 export function getWoodTexture(): THREE.CanvasTexture {
   if (woodTexture) return woodTexture;
-  const size = 512;
+  const size = 2048;
+  const k = size / 512;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
@@ -26,39 +41,35 @@ export function getWoodTexture(): THREE.CanvasTexture {
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, size, size);
 
-  // Subtle horizontal wood grain streaks.
-  for (let i = 0; i < 64; i++) {
-    const y = (i / 64) * size;
-    const wave = Math.sin(i * 0.7) * 6;
+  // Subtle horizontal wood grain streaks and fine timber fibers.
+  for (let i = 0; i < 128; i++) {
+    const y = (i / 128) * size;
+    const wave = Math.sin(i * 0.7) * 6 * k;
     ctx.strokeStyle = i % 3 === 0 ? 'rgba(196, 152, 92, 0.14)' : 'rgba(255, 249, 236, 0.22)';
-    ctx.lineWidth = 1.5 + (i % 4) * 0.8;
+    ctx.lineWidth = (1.1 + (i % 4) * 0.55) * k;
     ctx.beginPath();
     ctx.moveTo(0, y);
-    ctx.bezierCurveTo(size * 0.33, y + wave, size * 0.66, y - wave, size, y + (i % 2 === 0 ? 2 : -2));
+    ctx.bezierCurveTo(size * 0.33, y + wave, size * 0.66, y - wave, size, y + (i % 2 === 0 ? 2 : -2) * k);
     ctx.stroke();
   }
 
   // Soft grain ring knot.
   ctx.strokeStyle = 'rgba(182, 134, 72, 0.08)';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2 * k;
   for (let r = 12; r <= 48; r += 12) {
     ctx.beginPath();
-    ctx.ellipse(size * 0.72, size * 0.28, r * 1.9, r * 0.65, 0.12, 0, Math.PI * 2);
+    ctx.ellipse(size * 0.72, size * 0.28, r * 1.9 * k, r * 0.65 * k, 0.12, 0, Math.PI * 2);
     ctx.stroke();
   }
 
-  woodTexture = new THREE.CanvasTexture(canvas);
-  woodTexture.colorSpace = THREE.SRGBColorSpace;
-  woodTexture.wrapS = THREE.RepeatWrapping;
-  woodTexture.wrapT = THREE.RepeatWrapping;
-  woodTexture.anisotropy = 4;
+  woodTexture = createCrispBoardTexture(canvas, true, 8);
   return woodTexture;
 }
 
 /** Soft pastel tabletop halo fading cleanly into the scene background. */
 export function getTableMatTexture(): THREE.CanvasTexture {
   if (tableMatTexture) return tableMatTexture;
-  const size = 512;
+  const size = 1024;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
@@ -70,23 +81,25 @@ export function getTableMatTexture(): THREE.CanvasTexture {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
 
-  tableMatTexture = new THREE.CanvasTexture(canvas);
-  tableMatTexture.colorSpace = THREE.SRGBColorSpace;
+  tableMatTexture = createCrispBoardTexture(canvas, false, 4);
   return tableMatTexture;
 }
 
-/** Subtle ink-line mascot watermark placed at the center of each team's yard. */
+/** Crisp 1K ink-line mascot watermark placed at the center of each team's yard. */
 export function getTeamEmblemTexture(team: TeamId): THREE.CanvasTexture {
   const cached = emblemTextures.get(team);
   if (cached) return cached;
 
-  const size = 256;
+  const size = 1024;
+  const baseSize = 256;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
-  const c = size / 2;
+  const c = baseSize / 2;
 
   ctx.clearRect(0, 0, size, size);
+  ctx.save();
+  ctx.scale(size / baseSize, size / baseSize);
   ctx.globalAlpha = 0.34;
   ctx.strokeStyle = INK;
   ctx.fillStyle = INK;
@@ -148,17 +161,17 @@ export function getTeamEmblemTexture(team: TeamId): THREE.CanvasTexture {
     ctx.ellipse(c + 32, c - 22, 36, 18, 0.55, 0, Math.PI * 2);
     ctx.stroke();
   }
+  ctx.restore();
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
+  const texture = createCrispBoardTexture(canvas, false, 8);
   emblemTextures.set(team, texture);
   return texture;
 }
 
-/** Cozy pastel gingham picnic blanket texture for the central Home campfire meadow. */
+/** Cozy 1K pastel gingham picnic blanket texture for the central Home campfire meadow. */
 export function getPicnicBlanketTexture(): THREE.CanvasTexture {
   if (picnicBlanketTexture) return picnicBlanketTexture;
-  const size = 256;
+  const size = 1024;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
@@ -179,9 +192,16 @@ export function getPicnicBlanketTexture(): THREE.CanvasTexture {
     }
   }
 
-  picnicBlanketTexture = new THREE.CanvasTexture(canvas);
-  picnicBlanketTexture.colorSpace = THREE.SRGBColorSpace;
-  picnicBlanketTexture.wrapS = THREE.RepeatWrapping;
-  picnicBlanketTexture.wrapT = THREE.RepeatWrapping;
+  // Subtle woven linen grain lines for crisp close-up inspection.
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < size; i += 16) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, size);
+    ctx.stroke();
+  }
+
+  picnicBlanketTexture = createCrispBoardTexture(canvas, true, 8);
   return picnicBlanketTexture;
 }

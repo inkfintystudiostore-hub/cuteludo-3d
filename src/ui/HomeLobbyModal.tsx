@@ -455,7 +455,7 @@ export function HomeLobbyModal() {
                 placeholder="Your name (Host)"
                 value={playerName}
                 onChange={(e) => setPlayerName(e.target.value)}
-                className="col-span-2 rounded-xl border-2 border-ink bg-[#fff8f5] px-2.5 py-1 text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none sm:col-span-1"
+                className="col-span-2 rounded-xl border-2 border-ink bg-[#fff8f5] px-2.5 py-1 text-[16px] leading-5 sm:text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none sm:col-span-1"
               />
             </div>
 
@@ -548,7 +548,7 @@ export function HomeLobbyModal() {
                 placeholder="Your name"
                 value={playerName}
                 onChange={(e) => setPlayerName(e.target.value)}
-                className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-[#fff8f5] px-2.5 py-1 text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none"
+                className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-[#fff8f5] px-2.5 py-1 text-[16px] leading-5 sm:text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none"
               />
             </div>
 
@@ -617,7 +617,7 @@ export function HomeLobbyModal() {
                 placeholder="Enter display name (optional)"
                 value={playerName}
                 onChange={(e) => setPlayerName(e.target.value)}
-                className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-[#fff8f5] px-2.5 py-1 text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none"
+                className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-[#fff8f5] px-2.5 py-1 text-[16px] leading-5 sm:text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none"
               />
             </div>
 
@@ -663,7 +663,7 @@ export function HomeLobbyModal() {
                       if (joinError) setJoinError(null);
                       if (roomAlert) useGameStore.getState().setRoomAlert(null);
                     }}
-                    className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-[#fff8f5] px-2.5 py-1.5 text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none"
+                    className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-[#fff8f5] px-2.5 py-1.5 text-[16px] leading-5 sm:text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none"
                   />
                   <button
                     type="button"
