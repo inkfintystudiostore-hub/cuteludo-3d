@@ -23,26 +23,15 @@ import { areAllies } from '../../engine/ludoRules';
 import { CAPTURE_FLIGHT_DURATION, CAPTURE_TWIRL_DURATION, SPAWN_DURATION } from '../animationTiming';
 import { INK, heartPath, inkFill, starPath } from './canvasShapes';
 
-export type EmoteId = 'heart' | 'shock' | 'coffee' | 'fire';
-
-export const EMOTES: readonly { id: EmoteId; emoji: string; label: string }[] = [
-  { id: 'heart', emoji: '❤️', label: 'heart' },
-  { id: 'shock', emoji: '😱', label: 'shocked face' },
-  { id: 'coffee', emoji: '☕', label: 'coffee' },
-  { id: 'fire', emoji: '🔥', label: 'fire' },
-];
-
-export type EffectRequest =
-  | {
-      type: 'confetti' | 'sparkle' | 'bang' | 'speedRing' | 'dustLanding' | 'steam' | 'squabble' | 'picnicNote';
-      x: number;
-      z: number;
-      /** Height of the emitter; each effect has a sensible default. */
-      y?: number;
-      /** Seconds to wait before the effect appears. */
-      delay?: number;
-    }
-  | { type: 'emote'; emote: EmoteId };
+export type EffectRequest = {
+  type: 'confetti' | 'sparkle' | 'bang' | 'speedRing' | 'dustLanding' | 'steam' | 'squabble' | 'picnicNote';
+  x: number;
+  z: number;
+  /** Height of the emitter; each effect has a sensible default. */
+  y?: number;
+  /** Seconds to wait before the effect appears. */
+  delay?: number;
+};
 
 const pendingRequests: EffectRequest[] = [];
 
@@ -51,7 +40,7 @@ export function emitEffect(request: EffectRequest): void {
   pendingRequests.push(request);
 }
 
-type SpriteKind = 'star' | 'heart' | 'puff' | 'steam' | 'note' | 'anger' | 'bang' | 'line' | `emote-${EmoteId}`;
+type SpriteKind = 'star' | 'heart' | 'puff' | 'steam' | 'note' | 'anger' | 'bang' | 'line';
 
 const TEXTURE_SIZE = 128;
 const PASTELS = ['#ff8fab', '#72efdd', '#ffd166', '#80ed99', '#cdb4ff', '#ffffff'];
@@ -154,23 +143,7 @@ const SPRITE_PAINTERS: Record<SpriteKind, (ctx: CanvasRenderingContext2D, s: num
     ctx.roundRect(s * 0.08, s * 0.44, s * 0.84, s * 0.12, s * 0.06);
     inkFill(ctx, '#ffffff', s * 0.05);
   },
-  'emote-heart': (ctx, s) => paintSticker(ctx, s, '❤️'),
-  'emote-shock': (ctx, s) => paintSticker(ctx, s, '😱'),
-  'emote-coffee': (ctx, s) => paintSticker(ctx, s, '☕'),
-  'emote-fire': (ctx, s) => paintSticker(ctx, s, '🔥'),
 };
-
-/** White die-cut sticker with an emoji in the middle. */
-function paintSticker(ctx: CanvasRenderingContext2D, s: number, emoji: string): void {
-  ctx.beginPath();
-  ctx.arc(s / 2, s / 2, s * 0.42, 0, TAU);
-  inkFill(ctx, '#ffffff', s * 0.07);
-  ctx.font = `${s * 0.5}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = INK;
-  ctx.fillText(emoji, s / 2, s * 0.54);
-}
 
 function makeSpriteTexture(kind: SpriteKind): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -244,14 +217,6 @@ type Spawn = (kind: SpriteKind, p: Particle) => void;
 
 /** Turns one effect request into particles. */
 function buildEffect(request: EffectRequest, spawn: Spawn): void {
-  if (request.type === 'emote') {
-    spawn(
-      `emote-${request.emote}`,
-      particle({ x: rand(-4.5, 4.5), y: 1.4, z: rand(-3.5, 3.5), vy: 1.7, drag: 0.25, life: 2.4, size: 1.7, sway: 0.35, rot: rand(-0.25, 0.25) }),
-    );
-    return;
-  }
-
   const { x, z, delay = 0 } = request;
   switch (request.type) {
     case 'confetti': {

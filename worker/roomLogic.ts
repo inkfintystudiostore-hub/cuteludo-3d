@@ -5,7 +5,9 @@
  */
 import { TEAM_LABELS, type TeamId } from '../src/engine/boardMap';
 import { applyMove, applyRoll, createGame, rollSmartDie, type GameMode, type GameState } from '../src/engine/ludoRules';
-import type { ClientMessage, RoomSnapshot, SeatInfo, ServerMessage } from '../src/engine/multiplayerProtocol';
+import { ROOM_EMOTE_IDS, type ClientMessage, type RoomSnapshot, type SeatInfo, type ServerMessage } from '../src/engine/multiplayerProtocol';
+
+const VALID_EMOTES = new Set<string>(ROOM_EMOTE_IDS);
 
 export const ROOM_IDLE_TTL_MS = 6 * 60 * 60 * 1000;
 
@@ -300,6 +302,7 @@ export function handleRoomAction(
     }
 
     case 'emote': {
+      if (!VALID_EMOTES.has(msg.emote)) return { record, broadcast: [], persist: false };
       const seat = record.seats.find((s) => s.playerId === playerId && s.occupant === 'human');
       return {
         record,

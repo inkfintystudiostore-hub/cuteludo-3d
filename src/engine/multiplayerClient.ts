@@ -2,7 +2,6 @@
  * Client WebSocket adapter connecting to Cloudflare Durable Objects (/ws/room/:code)
  * with graceful offline fallback when running Vite without a live worker server.
  */
-import { emitEffect } from '../scene/effects/AnimeEffects';
 import { registerRoomTransport, useGameStore } from './gameStore';
 import type { GameMode } from './ludoRules';
 import type { ClientMessage, RoomEmoteId, ServerMessage } from './multiplayerProtocol';
@@ -167,9 +166,15 @@ export function connectMultiplayerRoom(code: string, role: 'host' | 'guest', mod
       case 'reset':
         state.syncRemoteReset(data.mode);
         break;
-      case 'emote':
-        emitEffect({ type: 'emote', emote: data.emote });
+      case 'emote': {
+        const team = data.fromTeam ?? state.room?.myTeam ?? state.game.currentTeam;
+        const existing = state.yardEmotes[team];
+        if (state.room?.myTeam === team && existing?.emote === data.emote && Date.now() - existing.startedAt < 600) {
+          break;
+        }
+        state.triggerYardEmote(team, data.emote);
         break;
+      }
       case 'error':
         useGameStore.setState({ notice: data.message });
         break;

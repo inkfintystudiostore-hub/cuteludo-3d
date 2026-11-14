@@ -68,6 +68,15 @@ export interface RoomSession {
   seats: SeatInfo[];
 }
 
+export const YARD_EMOTE_DURATION_MS = 4500;
+
+export interface YardEmoteOverlay {
+  id: number;
+  emote: RoomEmoteId;
+  startedAt: number;
+  expiresAt: number;
+}
+
 export interface RoomTransport {
   roll: () => void;
   move: (pawnId: string) => void;
@@ -102,6 +111,7 @@ export interface GameStore {
   cameraResetTick: number;
   stats: MatchStats;
   log: string[];
+  yardEmotes: Partial<Record<TeamId, YardEmoteOverlay>>;
   setSimulation: (on: boolean) => void;
   setVsAi: (on: boolean) => void;
   setPaused: (paused: boolean) => void;
@@ -112,6 +122,8 @@ export interface GameStore {
   playRemoteRoll: (value: number) => void;
   playRemoteMove: (pawnId: string) => void;
   syncRemoteReset: (mode: GameMode) => void;
+  triggerYardEmote: (team: TeamId, emote: RoomEmoteId) => void;
+  clearYardEmote: (team: TeamId, emoteId: number) => void;
   sendEmote: (emote: RoomEmoteId) => boolean;
   startMatch: (options?: StartMatchOptions) => void;
   exitToHome: () => void;
@@ -191,6 +203,7 @@ function freshState(mode: GameMode, overrideGame?: GameState) {
     lastBanner: null as EventBanner | null,
     stats: { turns: 0, captures: 0, sixes: 0 },
     log: [] as string[],
+    yardEmotes: {} as Partial<Record<TeamId, YardEmoteOverlay>>,
   };
 }
 
@@ -389,11 +402,36 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ ...freshState(mode), paused: false });
   },
 
+  triggerYardEmote: (team, emote) => {
+    const startedAt = Date.now();
+    const id = nextEventId++;
+    set((s) => ({
+      yardEmotes: {
+        ...s.yardEmotes,
+        [team]: { id, emote, startedAt, expiresAt: startedAt + YARD_EMOTE_DURATION_MS },
+      },
+    }));
+  },
+
+  clearYardEmote: (team, emoteId) => {
+    const existing = get().yardEmotes[team];
+    if (!existing || existing.id !== emoteId) return;
+    set((s) => {
+      const next = { ...s.yardEmotes };
+      delete next[team];
+      return { yardEmotes: next };
+    });
+  },
+
   sendEmote: (emote) => {
-    if (get().room?.online && roomTransport) {
+    const state = get();
+    if (state.room?.online && roomTransport) {
       roomTransport.emote(emote);
+      if (state.room.myTeam) state.triggerYardEmote(state.room.myTeam, emote);
       return true;
     }
+    const localTeam: TeamId = state.vsAi ? 'PINK' : state.game.currentTeam;
+    state.triggerYardEmote(localTeam, emote);
     return false;
   },
 

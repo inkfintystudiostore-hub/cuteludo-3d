@@ -11,7 +11,7 @@ import { pickSmartBotMove } from '../engine/ludoRules';
 import { buildRoomShareUrl, formatRoomCode, resolveShareBaseUrl } from '../engine/roomCode';
 import { DiceTray } from '../scene/Dice3D';
 import { CHARACTER_PROFILES } from '../scene/ChibiFigure';
-import { EMOTES, emitEffect } from '../scene/effects/AnimeEffects';
+import { EMOTES, playEmoteVideo, preloadEmoteVideos } from '../scene/emoteMedia';
 import { soundManager } from '../utils/soundManager';
 import { HomeLobbyModal } from './HomeLobbyModal';
 import {
@@ -407,19 +407,24 @@ function QuickPawnChips() {
 
 function EmoteBar() {
   const sendEmote = useGameStore((s) => s.sendEmote);
+  useEffect(() => {
+    preloadEmoteVideos();
+  }, []);
   return (
-    <div role="group" aria-label="Send a sticker" className="flex justify-center gap-1.5">
-      {EMOTES.map(({ id, emoji, label }) => (
+    <div role="group" aria-label="Send a GIF reaction" className="flex flex-wrap justify-center gap-1 sm:gap-1.5">
+      {EMOTES.map(({ id, label, src }) => (
         <button
           key={id}
           type="button"
-          aria-label={`Send ${label} sticker`}
+          title={label}
+          aria-label={`Send ${label} GIF`}
           onClick={() => {
-            if (!sendEmote(id)) emitEffect({ type: 'emote', emote: id });
+            playEmoteVideo(id);
+            sendEmote(id);
           }}
-          className={`grid size-9 place-items-center rounded-full bg-[#fff8f0] text-base landscape:size-8 ${INK_BUTTON}`}
+          className="size-9 cursor-pointer overflow-hidden rounded-xl border-2 border-ink bg-[#2b213a] p-0 shadow-ink-sm transition-transform hover:-translate-y-0.5 active:scale-95 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ink sm:size-10 landscape:size-8"
         >
-          <span aria-hidden>{emoji}</span>
+          <video src={src} autoPlay loop muted playsInline preload="auto" aria-hidden className="pointer-events-none size-full object-cover" />
         </button>
       ))}
     </div>

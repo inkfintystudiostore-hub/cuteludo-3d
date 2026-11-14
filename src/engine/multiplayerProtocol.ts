@@ -5,7 +5,9 @@
 import type { TeamId } from './boardMap';
 import type { GameMode, GameState } from './ludoRules';
 
-export type RoomEmoteId = 'heart' | 'shock' | 'coffee' | 'fire';
+export const ROOM_EMOTE_IDS = ['laugh', 'loading', 'wave', 'grumpy', 'angry'] as const;
+
+export type RoomEmoteId = (typeof ROOM_EMOTE_IDS)[number];
 
 export interface SeatInfo {
   team: TeamId;

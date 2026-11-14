@@ -21,6 +21,7 @@ import {
 } from '../engine/boardMap';
 import { useGameStore } from '../engine/gameStore';
 import { BoardPreview } from './BoardPreview';
+import { playEmoteVideo } from './emoteMedia';
 import { getPicnicBlanketTexture, getTeamEmblemTexture, getWoodTexture } from './boardTextures';
 import { getAnimeToonMaterial } from './shaders/animeToonMaterial';
 
@@ -224,6 +225,54 @@ function TrackArrows() {
   );
 }
 
+const NO_RAYCAST: THREE.Object3D['raycast'] = () => {};
+
+function YardEmoteOverlay({ team, centre, color }: { team: TeamId; centre: WorldPoint; color: string }) {
+  const yardEmote = useGameStore((s) => s.yardEmotes[team]);
+  const clearYardEmote = useGameStore((s) => s.clearYardEmote);
+  const cardRef = useRef<THREE.Group>(null);
+  const texture = useMemo(() => (yardEmote ? playEmoteVideo(yardEmote.emote) : null), [yardEmote]);
+
+  useFrame(({ clock }) => {
+    if (!yardEmote || !cardRef.current) return;
+    const now = Date.now();
+    if (now >= yardEmote.expiresAt) {
+      clearYardEmote(team, yardEmote.id);
+      return;
+    }
+    const elapsed = now - yardEmote.startedAt;
+    const remaining = yardEmote.expiresAt - now;
+    let popScale = 1;
+    if (elapsed < 220) {
+      popScale = Math.sin((elapsed / 220) * Math.PI * 0.62) * 1.08;
+    } else if (remaining < 280) {
+      popScale = Math.max(0.01, remaining / 280);
+    }
+    const bob = Math.sin(clock.elapsedTime * 5) * 0.04;
+    cardRef.current.position.set(centre.x, 1.46 + bob, centre.z);
+    cardRef.current.scale.setScalar(popScale);
+  });
+
+  if (!yardEmote || !texture) return null;
+
+  return (
+    <group ref={cardRef} position={[centre.x, 1.46, centre.z]}>
+      <mesh raycast={NO_RAYCAST}>
+        <boxGeometry args={[5.82, 0.08, 5.82]} />
+        <meshBasicMaterial color={INK} />
+      </mesh>
+      <mesh position-y={0.012} raycast={NO_RAYCAST}>
+        <boxGeometry args={[5.58, 0.08, 5.58]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+      <mesh key={yardEmote.emote} position-y={0.055} rotation-x={-Math.PI / 2} raycast={NO_RAYCAST}>
+        <planeGeometry args={[5.36, 5.36]} />
+        <meshBasicMaterial map={texture} toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
 function Yard({ team }: { team: TeamId }) {
   const origin = YARD_ORIGINS[team];
   const centre = cellToWorld({ row: origin.row + 2.5, col: origin.col + 2.5 });
@@ -290,6 +339,7 @@ function Yard({ team }: { team: TeamId }) {
           </group>
         ))}
       </group>
+      <YardEmoteOverlay team={team} centre={centre} color={color} />
     </group>
   );
 }
