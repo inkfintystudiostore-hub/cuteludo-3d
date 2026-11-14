@@ -78,28 +78,51 @@ describe('boardMap', () => {
     expect(getPawnWorldPosition({ ...pawns[1], progress: 7 }, pawns)).toMatchObject({ scale: 1, sharedState: 'solo' });
   });
 
-  it('shrinks both pawns by at least 10% when one stands directly behind another along Z', () => {
-    // Progress 5 is (row 5, col 6) and progress 6 is (row 4, col 6): same X, 1 tile apart in Z.
+  it('shrinks both pawns by 15% when they share a box border along X or Z', () => {
+    // Progress 5 is (row 5, col 6) and progress 6 is (row 4, col 6): 1 tile apart along Z.
+    // Progress 0 is (row 6, col 1) and progress 1 is (row 6, col 2): 1 tile apart along X.
     const pawns: Pawn[] = [
       { id: 'PINK-0', team: 'PINK', slot: 0, progress: 5 },
       { id: 'PINK-1', team: 'PINK', slot: 1, progress: 6 },
-      { id: 'PINK-2', team: 'PINK', slot: 2, progress: -1 },
-      { id: 'PINK-3', team: 'PINK', slot: 3, progress: -1 },
+      { id: 'CYAN-0', team: 'CYAN', slot: 0, progress: 37 }, // track index 50 -> (7,0)
+      { id: 'PINK-2', team: 'PINK', slot: 2, progress: 0 }, // track index 0 -> (6,1)
+      { id: 'PINK-3', team: 'PINK', slot: 3, progress: 1 }, // track index 1 -> (6,2): shares X border with PINK-2
+      { id: 'YELLOW-0', team: 'YELLOW', slot: 0, progress: -1 },
     ];
-    const front = getPawnWorldPosition(pawns[0], pawns);
-    const back = getPawnWorldPosition(pawns[1], pawns);
-    expect(front.scale).toBeLessThanOrEqual(0.9);
-    expect(back.scale).toBeLessThanOrEqual(0.9);
+    expect(getPawnWorldPosition(pawns[0], pawns).scale).toBeCloseTo(0.85, 5);
+    expect(getPawnWorldPosition(pawns[1], pawns).scale).toBeCloseTo(0.85, 5);
+    expect(getPawnWorldPosition(pawns[3], pawns).scale).toBeCloseTo(0.85, 5);
+    expect(getPawnWorldPosition(pawns[4], pawns).scale).toBeCloseTo(0.85, 5);
     // Yard pawns stay full size.
-    expect(getPawnWorldPosition(pawns[2], pawns).scale).toBe(1);
+    expect(getPawnWorldPosition(pawns[5], pawns).scale).toBe(1);
     // Lone pawn far away stays full size.
-    expect(getPawnWorldPosition({ ...pawns[0], progress: 0 }, pawns).scale).toBe(1);
+    expect(getPawnWorldPosition({ ...pawns[0], progress: 16 }, pawns).scale).toBe(1);
+  });
+
+  it('places finished pawns at compact non-overlapping picnic seats around the central bonfire', () => {
+    const allHome: Pawn[] = TEAM_IDS.flatMap((team) =>
+      [0, 1, 2, 3].map((slot) => ({ id: `${team}-${slot}`, team, slot, progress: 56 })),
+    );
+    const positions = allHome.map((p) => getPawnWorldPosition(p, allHome));
+    for (const pos of positions) {
+      expect(pos.scale).toBeLessThan(0.5);
+      expect(Math.hypot(pos.x, pos.z)).toBeGreaterThan(0.5);
+      expect(Math.hypot(pos.x, pos.z)).toBeLessThan(1.4);
+    }
+    // All 16 picnic seats are distinct and well separated.
+    for (let i = 0; i < positions.length; i++) {
+      for (let j = i + 1; j < positions.length; j++) {
+        const dist = Math.hypot(positions[i].x - positions[j].x, positions[i].z - positions[j].z);
+        expect(dist).toBeGreaterThan(0.35);
+      }
+    }
   });
 });
 
 describe('ludoRules', () => {
-  it('2P couples seats Pink and Yellow', () => {
+  it('2P couples seats Pink and Yellow, and 3P FFA seats Pink, Cyan, and Yellow', () => {
     expect(createGame('2P_COUPLES').activeTeams).toEqual(['PINK', 'YELLOW']);
+    expect(createGame('3P_FFA').activeTeams).toEqual(['PINK', 'CYAN', 'YELLOW']);
   });
 
   it('needs a six to spawn, and a six grants a bonus roll', () => {
@@ -146,12 +169,43 @@ describe('ludoRules', () => {
     expect(applyMove(applyRoll(state, 3).state, 'PINK-0').captured).toEqual([]);
   });
 
-  it('requires an exact roll to enter Home and ends the game when a team is all home', () => {
+  it('requires an exact roll to enter Home and ends 2P when a team is all home', () => {
     const state = place(createGame('2P_COUPLES'), { 'PINK-0': 54, 'PINK-1': 56, 'PINK-2': 56, 'PINK-3': 56 });
     expect(applyRoll(state, 3).outcome).toBe('NO_MOVES');
     const home = applyMove(applyRoll(state, 2).state, 'PINK-0');
     expect(home.reachedHome).toBe(true);
-    expect(home.state).toMatchObject({ phase: 'GAME_OVER', winners: ['PINK'] });
+    expect(home.finishedRank).toBe(1);
+    expect(home.state).toMatchObject({ phase: 'GAME_OVER', winners: ['PINK'], rankings: ['PINK', 'YELLOW'] });
+  });
+
+  it('continues 4P and 3P matches until the last player remains, tracking 1st, 2nd, 3rd, and 4th', () => {
+    let state = place(createGame('4P_FFA'), {
+      'PINK-0': 55, 'PINK-1': 56, 'PINK-2': 56, 'PINK-3': 56,
+      'CYAN-0': 55, 'CYAN-1': 56, 'CYAN-2': 56, 'CYAN-3': 56,
+      'YELLOW-0': 55, 'YELLOW-1': 56, 'YELLOW-2': 56, 'YELLOW-3': 56,
+    });
+
+    // Pink finishes 1st -> game keeps going!
+    const first = applyMove(applyRoll(state, 1).state, 'PINK-0');
+    expect(first.finishedRank).toBe(1);
+    expect(first.state.phase).toBe('ROLL');
+    expect(first.state.winners).toEqual([]);
+    expect(first.state.rankings).toEqual(['PINK']);
+    expect(first.state.currentTeam).toBe('CYAN');
+
+    // Cyan finishes 2nd -> game still keeps going for 3rd/4th!
+    const second = applyMove(applyRoll(first.state, 1).state, 'CYAN-0');
+    expect(second.finishedRank).toBe(2);
+    expect(second.state.phase).toBe('ROLL');
+    expect(second.state.rankings).toEqual(['PINK', 'CYAN']);
+    expect(second.state.currentTeam).toBe('YELLOW');
+
+    // Yellow finishes 3rd -> only Mint left, so Mint is 4th and game ends!
+    const third = applyMove(applyRoll(second.state, 1).state, 'YELLOW-0');
+    expect(third.finishedRank).toBe(3);
+    expect(third.state.phase).toBe('GAME_OVER');
+    expect(third.state.winners).toEqual(['PINK']);
+    expect(third.state.rankings).toEqual(['PINK', 'CYAN', 'YELLOW', 'MINT']);
   });
 });
 
@@ -172,7 +226,7 @@ describe('full-game simulation', () => {
     return seed / 2 ** 32;
   };
 
-  it.each(['2P_COUPLES', '4P_FFA', '2V2_TEAM'] as const)('plays 40 random %s games without breaking a rule', (mode) => {
+  it.each(['2P_COUPLES', '3P_FFA', '4P_FFA', '2V2_TEAM'] as const)('plays 40 random %s games without breaking a rule', (mode) => {
     for (let game = 0; game < 40; game++) {
       const random = seeded(game * 7919 + mode.length);
       let state = createGame(mode);
@@ -230,6 +284,8 @@ describe('full-game simulation', () => {
       const winners = state.winners;
       expect(winners.length).toBe(mode === '2V2_TEAM' ? 2 : 1);
       for (const team of winners) expect(isDone(state, team)).toBe(true);
+      expect(state.rankings).toHaveLength(state.activeTeams.length);
+      expect(new Set(state.rankings).size).toBe(state.activeTeams.length);
     }
   }, 30_000);
 });

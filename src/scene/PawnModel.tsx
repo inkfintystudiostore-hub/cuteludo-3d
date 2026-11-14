@@ -11,14 +11,14 @@ import { useAnimations, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { TEAM_COLORS, type TeamId } from '../engine/boardMap';
-import { ChibiFigure } from './ChibiFigure';
+import { ChibiFigure, type PicnicActivity } from './ChibiFigure';
 import { applyAnimeToon } from './shaders/animeToonMaterial';
 
 /** Animation clips a pawn model may provide. Missing clips fall back to Idle, then to none. */
-export type PawnClip = 'Idle' | 'Hop' | 'Dance' | 'SipCoffee';
+export type PawnClip = 'Idle' | 'Hop' | 'SipCoffee' | 'Picnic';
 
-/** Matches the procedural anime character so mixed teams look consistent. */
-const MODEL_HEIGHT = 1.55;
+/** Matches the procedural anime character (5% smaller overall) so mixed teams look consistent. */
+const MODEL_HEIGHT = 1.55 * 0.95;
 const CROSSFADE = 0.25;
 
 const availability = new Map<string, Promise<boolean>>();
@@ -117,12 +117,22 @@ function GltfFigure({ url, team, clip }: { url: string; team: TeamId; clip: Pawn
   );
 }
 
-function ResolvedFigure({ team, slot, clip, holdingCup, isMovable, isHovered }: PawnModelProps) {
+function ResolvedFigure({ team, slot, clip, holdingCup, isMovable, isHovered, isSitting, picnicActivity, finalRank, isLastPlace }: PawnModelProps) {
   const url = use(resolveModelUrl(team, slot));
   return url ? (
     <GltfFigure url={url} team={team} clip={clip} />
   ) : (
-    <ChibiFigure team={team} slot={slot} holdingCup={holdingCup} isMovable={isMovable} isHovered={isHovered} />
+    <ChibiFigure
+      team={team}
+      slot={slot}
+      holdingCup={holdingCup}
+      isMovable={isMovable}
+      isHovered={isHovered}
+      isSitting={isSitting}
+      picnicActivity={picnicActivity}
+      finalRank={finalRank}
+      isLastPlace={isLastPlace}
+    />
   );
 }
 
@@ -135,6 +145,10 @@ interface PawnModelProps {
   holdingCup: boolean;
   isMovable?: boolean;
   isHovered?: boolean;
+  isSitting?: boolean;
+  picnicActivity?: PicnicActivity;
+  finalRank?: number | null;
+  isLastPlace?: boolean;
 }
 
 export function PawnModel(props: PawnModelProps) {
@@ -145,6 +159,10 @@ export function PawnModel(props: PawnModelProps) {
       holdingCup={props.holdingCup}
       isMovable={props.isMovable}
       isHovered={props.isHovered}
+      isSitting={props.isSitting}
+      picnicActivity={props.picnicActivity}
+      finalRank={props.finalRank}
+      isLastPlace={props.isLastPlace}
     />
   );
   return (

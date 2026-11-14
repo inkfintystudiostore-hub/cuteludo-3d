@@ -112,13 +112,40 @@ export const HOME_COLUMN_CELLS: Record<TeamId, readonly GridCell[]> = {
   MINT: line(13, 7, -1, 0, HOME_COLUMN_LENGTH),
 };
 
-/** Where finished pawns stand: each team's wedge of the central pavilion. */
+/** Where finished pawns gather if referenced by team centre; individual seats use `getHomePicnicPosition`. */
 export const HOME_GOAL_POSITIONS: Record<TeamId, WorldPoint> = {
   PINK: { x: -0.85, z: 0 },
   CYAN: { x: 0, z: -0.85 },
   YELLOW: { x: 0.85, z: 0 },
   MINT: { x: 0, z: 0.85 },
 };
+
+/** Small settled scale inside the central picnic area so up to 16 pieces never feel cluttered. */
+export const HOME_PICNIC_SCALE = 0.44;
+
+const PICNIC_SLOTS: readonly { forward: number; lateral: number }[] = [
+  { forward: 0.74, lateral: -0.22 }, // Sunny: marshmallow toaster near fire
+  { forward: 0.74, lateral: 0.22 },  // Professor: coffee mug sipper near fire
+  { forward: 1.12, lateral: -0.32 }, // Sleepy: cozy snack eater
+  { forward: 1.12, lateral: 0.32 },  // Rascal: campfire singer
+];
+
+const WEDGE_AXES: Record<TeamId, { fx: number; fz: number; lx: number; lz: number }> = {
+  PINK: { fx: -1, fz: 0, lx: 0, lz: 1 },
+  CYAN: { fx: 0, fz: -1, lx: -1, lz: 0 },
+  YELLOW: { fx: 1, fz: 0, lx: 0, lz: -1 },
+  MINT: { fx: 0, fz: 1, lx: 1, lz: 0 },
+};
+
+/** Cozy seated spot inside the team's wedge facing the central bonfire at (0, 0). */
+export function getHomePicnicPosition(team: TeamId, slot: number): WorldPoint {
+  const layout = PICNIC_SLOTS[slot % PICNIC_SLOTS.length];
+  const axes = WEDGE_AXES[team];
+  return {
+    x: axes.fx * layout.forward + axes.lx * layout.lateral,
+    z: axes.fz * layout.forward + axes.lz * layout.lateral,
+  };
+}
 
 /** Top-left grid cell of each team's 6x6 corner yard. */
 export const YARD_ORIGINS: Record<TeamId, GridCell> = {
@@ -223,17 +250,19 @@ function facing(dx: number, dz: number): number {
   return Math.atan2(dx, dz);
 }
 
-/** Shrinks both pieces by 15% (>= 10%) when one stands directly behind another along Z. */
-const DEPTH_NEIGHBOR_SCALE = 0.85;
+/** Shrinks any two active pieces by 15% when they occupy tiles that share a box border (X or Z). */
+const BORDER_NEIGHBOR_SCALE = 0.85;
 
-function hasDepthNeighbor(pawn: Pawn, centre: WorldPoint, allPawns: readonly Pawn[]): boolean {
+function hasBorderNeighbor(pawn: Pawn, centre: WorldPoint, allPawns: readonly Pawn[]): boolean {
   if (pawn.progress < 0 || pawn.progress >= HOME_PROGRESS) return false;
   for (const other of allPawns) {
     if (other.id === pawn.id || other.progress < 0 || other.progress >= HOME_PROGRESS) continue;
     const otherCentre = getProgressPosition(other.team, other.progress);
     const dx = Math.abs(otherCentre.x - centre.x);
     const dz = Math.abs(otherCentre.z - centre.z);
-    if (dx <= 0.45 && dz > 0.1 && dz <= 1.15) return true;
+    if ((dx <= 0.45 && dz > 0.1 && dz <= 1.15) || (dz <= 0.45 && dx > 0.1 && dx <= 1.15)) {
+      return true;
+    }
   }
   return false;
 }
@@ -241,10 +270,9 @@ function hasDepthNeighbor(pawn: Pawn, centre: WorldPoint, allPawns: readonly Paw
 /**
  * Resolves where a pawn should stand in the 3D scene.
  *
- * Pawns sharing a tile shrink and move into sub-tile quadrants facing each other. Pawns with
- * another active piece directly in front or behind them along Z shrink by 15% so both stay
- * clearly visible. `sharedState` is 'coffee' when everyone on the tile is friendly and
- * 'squabble' when rivals share it (only possible on star tiles).
+ * Finished pawns settle around the central campfire at a compact picnic scale facing inward.
+ * Pawns sharing a tile shrink and move into sub-tile quadrants facing each other. Pawns sharing
+ * a tile border with another active piece along X or Z shrink by 15% so neighbors stay legible.
  */
 export function getPawnWorldPosition(
   pawn: Pawn,
@@ -256,17 +284,24 @@ export function getPawnWorldPosition(
     return { ...slot, scale: 1, rotationY: 0, sharedState: 'solo' }; // waiting pawns face the camera
   }
 
+  if (pawn.progress === HOME_PROGRESS) {
+    const seat = getHomePicnicPosition(pawn.team, pawn.slot);
+    return {
+      ...seat,
+      scale: HOME_PICNIC_SCALE,
+      rotationY: facing(-seat.x, -seat.z),
+      sharedState: 'solo',
+    };
+  }
+
   const centre = getProgressPosition(pawn.team, pawn.progress);
   const mates = getTileMates(pawn, allPawns);
-  const depthFactor = hasDepthNeighbor(pawn, centre, allPawns) ? DEPTH_NEIGHBOR_SCALE : 1;
+  const neighborFactor = hasBorderNeighbor(pawn, centre, allPawns) ? BORDER_NEIGHBOR_SCALE : 1;
 
   if (mates.length === 0) {
-    let rotationY = 0; // Finished pawns face the camera.
-    if (pawn.progress < HOME_PROGRESS) {
-      const next = getProgressPosition(pawn.team, pawn.progress + 1);
-      rotationY = facing(next.x - centre.x, next.z - centre.z);
-    }
-    return { ...centre, scale: depthFactor, rotationY, sharedState: 'solo' };
+    const next = getProgressPosition(pawn.team, pawn.progress + 1);
+    const rotationY = facing(next.x - centre.x, next.z - centre.z);
+    return { ...centre, scale: neighborFactor, rotationY, sharedState: 'solo' };
   }
 
   const occupants = [pawn, ...mates].sort((a, b) => a.id.localeCompare(b.id));
@@ -275,7 +310,7 @@ export function getPawnWorldPosition(
   return {
     x: centre.x + offset.x,
     z: centre.z + offset.z,
-    scale: sharedScale(occupants.length) * depthFactor,
+    scale: sharedScale(occupants.length) * neighborFactor,
     rotationY: facing(-offset.x, -offset.z),
     sharedState: friendly ? 'coffee' : 'squabble',
   };

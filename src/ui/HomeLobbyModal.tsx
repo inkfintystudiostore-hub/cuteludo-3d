@@ -4,9 +4,9 @@
  * powered by Cloudflare Durable Objects WebSockets (with graceful offline local fallback).
  */
 import { useEffect, useState } from 'react';
-import { TEAM_COLORS, TEAM_IDS, TEAM_LABELS, type TeamId } from '../engine/boardMap';
+import { TEAM_COLORS, TEAM_LABELS, type TeamId } from '../engine/boardMap';
 import { useGameStore } from '../engine/gameStore';
-import type { GameMode } from '../engine/ludoRules';
+import { MODE_TEAMS, type GameMode } from '../engine/ludoRules';
 import {
   connectMultiplayerRoom,
   disconnectMultiplayerRoom,
@@ -23,6 +23,7 @@ type LocalPlayStyle = 'ai' | 'pass' | 'sim';
 
 const FORMATS: { id: GameMode; label: string; hint: string }[] = [
   { id: '2P_COUPLES', label: '2P Couples', hint: 'Pink vs Yellow' },
+  { id: '3P_FFA', label: '3P Friends', hint: '3 Animals' },
   { id: '4P_FFA', label: '4P Friends', hint: 'All 4 Animals' },
   { id: '2V2_TEAM', label: '2v2 Teams', hint: 'Team Up!' },
 ];
@@ -157,7 +158,7 @@ export function HomeLobbyModal() {
     }
   };
 
-  const activeTeams: TeamId[] = format === '2P_COUPLES' ? ['PINK', 'YELLOW'] : [...TEAM_IDS];
+  const activeTeams: TeamId[] = [...MODE_TEAMS[format]];
   const connectedGuestWaiting = room?.role === 'guest' && room.online && !room.started;
   const offlineFallbackReady = room?.role === 'guest' && room.status === 'offline';
 
@@ -224,7 +225,7 @@ export function HomeLobbyModal() {
         {/* Shared Board Format Picker */}
         <section aria-label="Board player format" className="flex flex-col gap-1">
           <span className="text-[11px] font-bold tracking-wider text-ink/70 uppercase">Players &amp; Teams</span>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {FORMATS.map(({ id, label, hint }) => (
               <button
                 key={id}

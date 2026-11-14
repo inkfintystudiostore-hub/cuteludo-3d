@@ -32,7 +32,10 @@ const INK = '#2b213a';
 const BLUSH = '#ff85a1';
 const LEAF = '#40b883';
 const GOLD_METAL = '#f4c95d';
-const FIGURE_SCALE = 1.48;
+const FIGURE_SCALE = 1.48 * 0.95; // 5% smaller overall piece size
+
+export type PicnicActivity = 'marshmallow' | 'coffee' | 'eat' | 'sing';
+export const PICNIC_ACTIVITIES: readonly PicnicActivity[] = ['marshmallow', 'coffee', 'eat', 'sing'];
 
 const TEAM_SPECIES: Record<TeamId, AnimalSpecies> = {
   PINK: 'cat',
@@ -119,34 +122,29 @@ export const CHARACTER_PROFILES = [
 type Accessory = (typeof CHARACTER_PROFILES)[number]['accessory'];
 type MouthKind = (typeof CHARACTER_PROFILES)[number]['mouth'];
 
-const coatMatCache = new Map<string, THREE.MeshPhysicalMaterial>();
-const satinMatCache = new Map<string, THREE.MeshPhysicalMaterial>();
-const glossyMatCache = new Map<string, THREE.MeshPhysicalMaterial>();
-const eyeMatCache = new Map<THREE.CanvasTexture, THREE.MeshPhysicalMaterial>();
+const coatMatCache = new Map<string, THREE.MeshStandardMaterial>();
+const satinMatCache = new Map<string, THREE.MeshStandardMaterial>();
+const glossyMatCache = new Map<string, THREE.MeshStandardMaterial>();
+const eyeMatCache = new Map<THREE.CanvasTexture, THREE.MeshStandardMaterial>();
 let goldMetalMat: THREE.MeshStandardMaterial | null = null;
-let blushMat: THREE.MeshPhysicalMaterial | null = null;
+let blushMat: THREE.MeshStandardMaterial | null = null;
 
 function shade(color: string, amount: number): string {
   const target = new THREE.Color(amount >= 0 ? '#ffffff' : INK);
   return `#${new THREE.Color(color).lerp(target, Math.abs(amount)).getHexString()}`;
 }
 
-/** Velvety plush coat material paired with 2048px coat shading and 1024px microfiber bump. */
-function getCoatMaterial(species: AnimalSpecies, coatColor: string): THREE.MeshPhysicalMaterial {
+/** Velvety plush coat material paired with coat shading and microfiber bump. */
+function getCoatMaterial(species: AnimalSpecies, coatColor: string): THREE.MeshStandardMaterial {
   const key = `${species}|${coatColor}`;
   let mat = coatMatCache.get(key);
   if (!mat) {
-    mat = new THREE.MeshPhysicalMaterial({
+    mat = new THREE.MeshStandardMaterial({
       map: getAnimalCoatTexture(species, coatColor),
       bumpMap: getAnimalFurBumpTexture(),
-      bumpScale: 0.0045,
-      roughness: 0.56,
+      bumpScale: 0.004,
+      roughness: 0.62,
       metalness: 0.0,
-      sheen: 0.9,
-      sheenRoughness: 0.5,
-      sheenColor: new THREE.Color(coatColor).lerp(new THREE.Color('#ffffff'), 0.55),
-      clearcoat: 0.08,
-      clearcoatRoughness: 0.45,
     });
     coatMatCache.set(key, mat);
   }
@@ -154,19 +152,14 @@ function getCoatMaterial(species: AnimalSpecies, coatColor: string): THREE.MeshP
 }
 
 /** Soft matte satin-plush material for bellies, ear hollows, scarves, and berets. */
-function getSoftSatinMaterial(color: string, bumpScale = 0.0025): THREE.MeshPhysicalMaterial {
+function getSoftSatinMaterial(color: string, bumpScale = 0.002): THREE.MeshStandardMaterial {
   const key = `${color}|${bumpScale}`;
   let mat = satinMatCache.get(key);
   if (!mat) {
-    mat = new THREE.MeshPhysicalMaterial({
+    mat = new THREE.MeshStandardMaterial({
       color,
-      bumpMap: getAnimalFurBumpTexture(),
-      bumpScale,
-      roughness: 0.5,
+      roughness: 0.56,
       metalness: 0.0,
-      sheen: 0.78,
-      sheenRoughness: 0.48,
-      sheenColor: new THREE.Color('#ffffff'),
     });
     satinMatCache.set(key, mat);
   }
@@ -174,15 +167,13 @@ function getSoftSatinMaterial(color: string, bumpScale = 0.0025): THREE.MeshPhys
 }
 
 /** Smooth glossy vinyl/ceramic accent material for noses, headphone shells, and mugs. */
-function getGlossyMaterial(color: string): THREE.MeshPhysicalMaterial {
+function getGlossyMaterial(color: string): THREE.MeshStandardMaterial {
   let mat = glossyMatCache.get(color);
   if (!mat) {
-    mat = new THREE.MeshPhysicalMaterial({
+    mat = new THREE.MeshStandardMaterial({
       color,
       roughness: 0.16,
-      metalness: 0.04,
-      clearcoat: 0.9,
-      clearcoatRoughness: 0.1,
+      metalness: 0.06,
     });
     glossyMatCache.set(color, mat);
   }
@@ -190,16 +181,14 @@ function getGlossyMaterial(color: string): THREE.MeshPhysicalMaterial {
 }
 
 /** Crystal-clear glossy resin dome eye material. */
-function getEyeMaterial(eyeMap: THREE.CanvasTexture): THREE.MeshPhysicalMaterial {
+function getEyeMaterial(eyeMap: THREE.CanvasTexture): THREE.MeshStandardMaterial {
   let mat = eyeMatCache.get(eyeMap);
   if (!mat) {
-    mat = new THREE.MeshPhysicalMaterial({
+    mat = new THREE.MeshStandardMaterial({
       color: '#faf6fc',
       map: eyeMap,
-      roughness: 0.08,
-      metalness: 0.0,
-      clearcoat: 0.95,
-      clearcoatRoughness: 0.05,
+      roughness: 0.1,
+      metalness: 0.04,
     });
     eyeMatCache.set(eyeMap, mat);
   }
@@ -217,9 +206,9 @@ function getGoldMetalMaterial(): THREE.MeshStandardMaterial {
   return goldMetalMat;
 }
 
-function getBlushMaterial(): THREE.MeshPhysicalMaterial {
+function getBlushMaterial(): THREE.MeshStandardMaterial {
   if (!blushMat) {
-    blushMat = new THREE.MeshPhysicalMaterial({
+    blushMat = new THREE.MeshStandardMaterial({
       color: BLUSH,
       roughness: 0.65,
       transparent: true,
@@ -230,7 +219,7 @@ function getBlushMaterial(): THREE.MeshPhysicalMaterial {
 }
 
 /** Smooth sculpted ears / amphibian crown crest per species. */
-function AnimalEars({ species, coatMat }: { species: AnimalSpecies; coatMat: THREE.MeshPhysicalMaterial }) {
+function AnimalEars({ species, coatMat }: { species: AnimalSpecies; coatMat: THREE.MeshStandardMaterial }) {
   const innerEarMat = getSoftSatinMaterial(INNER_EAR, 0.002);
   const creamMat = getSoftSatinMaterial(BELLY_CREAM, 0.002);
 
@@ -407,7 +396,7 @@ function AnimalTail({
   coatColor,
 }: {
   species: AnimalSpecies;
-  coatMat: THREE.MeshPhysicalMaterial;
+  coatMat: THREE.MeshStandardMaterial;
   coatColor: string;
 }) {
   switch (species) {
@@ -537,12 +526,27 @@ export interface ChibiFigureProps {
   holdingCup: boolean;
   isMovable?: boolean;
   isHovered?: boolean;
+  isSitting?: boolean;
+  picnicActivity?: PicnicActivity;
+  finalRank?: number | null;
+  isLastPlace?: boolean;
 }
 
-export function ChibiFigure({ team, slot, holdingCup, isMovable = false, isHovered = false }: ChibiFigureProps) {
+export function ChibiFigure({
+  team,
+  slot,
+  holdingCup,
+  isMovable = false,
+  isHovered = false,
+  isSitting = false,
+  picnicActivity,
+  finalRank = null,
+  isLastPlace = false,
+}: ChibiFigureProps) {
   const species = TEAM_SPECIES[team];
   const charIdx = slot % CHARACTER_PROFILES.length;
   const char = CHARACTER_PROFILES[charIdx] ?? CHARACTER_PROFILES[0];
+  const activity: PicnicActivity = picnicActivity ?? PICNIC_ACTIVITIES[charIdx];
 
   const baseColor = TEAM_COLORS[team];
   const coatColor = char.shade === 0 ? baseColor : shade(baseColor, char.shade);
@@ -574,28 +578,152 @@ export function ChibiFigure({ team, slot, holdingCup, isMovable = false, isHover
     const head = headRef.current;
     if (!body || !head) return;
 
+    const elapsed = clock.elapsedTime;
     const energy = isHovered ? 1.85 : isMovable ? 1.3 : 1;
-    const t = clock.elapsedTime * char.tempo * energy + phase;
+    const t = elapsed * char.tempo * energy + phase;
 
-    body.scale.y = 1 + Math.sin(t * 2.2) * 0.025;
-    body.rotation.z = Math.sin(t * 2.4) * char.hipWiggle * energy;
-    head.rotation.z = Math.sin(t * 1.3) * char.sway;
-    head.rotation.y = Math.sin(t * 0.6) * char.look;
-    head.rotation.x = -0.11 - char.nod * 0.4 * (1 + Math.sin(t * 1.1));
+    const sitY = isSitting ? -0.055 : 0;
+    const sitLean = isSitting ? -0.06 : 0;
+
+    if (finalRank === 1) {
+      // 1st place: joyful cheering hop & raised arms!
+      const cheerT = elapsed * 5.4 + phase;
+      body.position.y = sitY + Math.abs(Math.sin(cheerT)) * 0.14;
+      body.scale.y = 1 + Math.sin(cheerT * 2) * 0.04;
+      body.rotation.z = Math.sin(cheerT * 0.8) * 0.1;
+      body.rotation.x = sitLean;
+      head.rotation.z = Math.sin(cheerT * 1.1) * 0.12;
+      head.rotation.y = Math.sin(cheerT * 0.7) * 0.18;
+      head.rotation.x = -0.16;
+      if (leftArmRef.current) {
+        leftArmRef.current.rotation.x = -2.1 + Math.sin(cheerT * 2) * 0.3;
+        leftArmRef.current.rotation.z = 0.4;
+      }
+      if (rightArmRef.current) {
+        rightArmRef.current.rotation.x = -2.1 - Math.sin(cheerT * 2) * 0.3;
+        rightArmRef.current.rotation.z = -0.4;
+      }
+    } else if (isLastPlace) {
+      // Last place: comical sulking tantrum & frustrated wobble!
+      const rageT = elapsed * 8.5 + phase;
+      body.position.y = sitY;
+      body.scale.y = 1 - Math.abs(Math.sin(rageT * 0.5)) * 0.05;
+      body.rotation.z = Math.sin(rageT) * 0.12;
+      body.rotation.x = sitLean + 0.12;
+      head.rotation.z = Math.sin(rageT * 1.2) * 0.14;
+      head.rotation.y = Math.sin(rageT * 0.9) * 0.32;
+      head.rotation.x = 0.2;
+      if (leftArmRef.current) {
+        leftArmRef.current.rotation.x = -0.9 + Math.sin(rageT * 1.6) * 0.55;
+        leftArmRef.current.rotation.z = 0.45;
+      }
+      if (rightArmRef.current) {
+        rightArmRef.current.rotation.x = -0.9 - Math.sin(rageT * 1.6) * 0.55;
+        rightArmRef.current.rotation.z = -0.45;
+      }
+    } else if (finalRank === 2) {
+      // 2nd place: cheerful clapping & proud celebratory nod!
+      const clapT = elapsed * 4.2 + phase;
+      body.position.y = sitY + Math.abs(Math.sin(clapT * 0.8)) * 0.04;
+      body.scale.y = 1 + Math.sin(clapT) * 0.025;
+      body.rotation.z = Math.sin(clapT * 0.9) * 0.07;
+      body.rotation.x = sitLean;
+      head.rotation.z = Math.sin(clapT * 0.9) * 0.09;
+      head.rotation.y = Math.sin(clapT * 0.5) * 0.2;
+      head.rotation.x = -0.12 + Math.sin(clapT * 2) * 0.06;
+      if (leftArmRef.current) {
+        leftArmRef.current.rotation.x = -1.15;
+        leftArmRef.current.rotation.z = -0.2 + Math.sin(clapT * 3) * 0.25;
+      }
+      if (rightArmRef.current) {
+        rightArmRef.current.rotation.x = -1.15;
+        rightArmRef.current.rotation.z = 0.2 - Math.sin(clapT * 3) * 0.25;
+      }
+    } else if (isSitting) {
+      // Cozy seated picnic animation tailored to each friend's campfire activity.
+      body.position.y = sitY;
+      body.scale.y = 1 + Math.sin(t * 1.6) * 0.02;
+      body.rotation.x = sitLean;
+      if (activity === 'sing') {
+        const singT = elapsed * 2.8 + phase;
+        body.rotation.z = Math.sin(singT) * 0.1;
+        head.rotation.z = Math.sin(singT) * 0.14;
+        head.rotation.y = Math.sin(singT * 0.5) * 0.22;
+        head.rotation.x = -0.16 + Math.sin(singT * 2) * 0.06;
+        if (leftArmRef.current) {
+          leftArmRef.current.rotation.x = -0.65 + Math.sin(singT * 2) * 0.25;
+          leftArmRef.current.rotation.z = 0.3;
+        }
+        if (rightArmRef.current) {
+          rightArmRef.current.rotation.x = -0.65 - Math.sin(singT * 2) * 0.25;
+          rightArmRef.current.rotation.z = -0.3;
+        }
+      } else if (activity === 'marshmallow') {
+        body.rotation.z = Math.sin(t * 1.2) * 0.03;
+        head.rotation.z = Math.sin(t * 1.1) * 0.05;
+        head.rotation.y = Math.sin(t * 0.5) * 0.14;
+        head.rotation.x = -0.08 + Math.sin(t * 1.4) * 0.04;
+        if (leftArmRef.current) {
+          leftArmRef.current.rotation.x = -0.25;
+          leftArmRef.current.rotation.z = 0.26;
+        }
+        if (rightArmRef.current) {
+          rightArmRef.current.rotation.x = -1.05 + Math.sin(elapsed * 2.2 + phase) * 0.12;
+          rightArmRef.current.rotation.z = -0.1;
+        }
+      } else if (activity === 'eat') {
+        const eatT = elapsed * 2.5 + phase;
+        body.rotation.z = Math.sin(eatT * 0.6) * 0.04;
+        head.rotation.z = Math.sin(eatT * 0.8) * 0.06;
+        head.rotation.y = Math.sin(eatT * 0.4) * 0.12;
+        head.rotation.x = -0.04 + Math.max(0, Math.sin(eatT * 2)) * 0.12;
+        if (leftArmRef.current) {
+          leftArmRef.current.rotation.x = -0.25;
+          leftArmRef.current.rotation.z = 0.25;
+        }
+        if (rightArmRef.current) {
+          rightArmRef.current.rotation.x = -0.85 - Math.max(0, Math.sin(eatT)) * 0.45;
+          rightArmRef.current.rotation.z = 0.18;
+        }
+      } else {
+        // Cozy coffee sipper around the campfire
+        const sipT = elapsed * 1.8 + phase;
+        body.rotation.z = Math.sin(sipT) * 0.035;
+        head.rotation.z = Math.sin(sipT * 0.9) * 0.05;
+        head.rotation.y = Math.sin(sipT * 0.45) * 0.14;
+        head.rotation.x = -0.1 + Math.max(0, Math.sin(sipT * 0.7)) * 0.08;
+        if (leftArmRef.current) {
+          leftArmRef.current.rotation.x = -0.25;
+          leftArmRef.current.rotation.z = 0.24;
+        }
+        if (rightArmRef.current) {
+          rightArmRef.current.rotation.x = -0.78 - Math.max(0, Math.sin(sipT * 0.7)) * 0.35;
+          rightArmRef.current.rotation.z = 0.15;
+        }
+      }
+    } else {
+      body.position.y = 0;
+      body.rotation.x = 0;
+      body.scale.y = 1 + Math.sin(t * 2.2) * 0.025;
+      body.rotation.z = Math.sin(t * 2.4) * char.hipWiggle * energy;
+      head.rotation.z = Math.sin(t * 1.3) * char.sway;
+      head.rotation.y = Math.sin(t * 0.6) * char.look;
+      head.rotation.x = -0.11 - char.nod * 0.4 * (1 + Math.sin(t * 1.1));
+
+      const wave = isHovered ? -1.05 + Math.sin(t * 6) * 0.35 : Math.sin(t * 2.1) * 0.18;
+      if (leftArmRef.current) {
+        leftArmRef.current.rotation.x = wave;
+        leftArmRef.current.rotation.z = 0.24;
+      }
+      if (rightArmRef.current) {
+        rightArmRef.current.rotation.x = isHovered ? -1.05 - Math.sin(t * 6) * 0.35 : -wave;
+        rightArmRef.current.rotation.z = -0.24;
+      }
+    }
 
     if (tailRef.current) tailRef.current.rotation.y = Math.sin(t * 4.0) * 0.42;
 
-    const wave = isHovered ? -1.05 + Math.sin(t * 6) * 0.35 : Math.sin(t * 2.1) * 0.18;
-    if (leftArmRef.current) {
-      leftArmRef.current.rotation.x = wave;
-      leftArmRef.current.rotation.z = 0.24;
-    }
-    if (rightArmRef.current) {
-      rightArmRef.current.rotation.x = isHovered ? -1.05 - Math.sin(t * 6) * 0.35 : -wave;
-      rightArmRef.current.rotation.z = -0.24;
-    }
-
-    const blinking = (clock.elapsedTime + phase) % char.blinkEvery < 0.12;
+    const blinking = (elapsed + phase) % char.blinkEvery < 0.12;
     eyeRefs.current.forEach((eye, idx) => {
       if (!eye) return;
       const winkScale = char.winkRight && idx === 1 ? 0.22 : 1;
@@ -608,6 +736,10 @@ export function ChibiFigure({ team, slot, holdingCup, isMovable = false, isHover
   const eyeZ = species === 'frog' ? 0.215 : 0.252;
   const eyeRadius = species === 'frog' ? 0.066 : 0.06;
 
+  const showCoffeeCup = holdingCup || (isSitting && activity === 'coffee');
+  const showMarshmallow = isSitting && activity === 'marshmallow';
+  const showSnack = isSitting && activity === 'eat';
+
   return (
     <group scale={FIGURE_SCALE}>
       <group ref={bodyRef}>
@@ -616,16 +748,55 @@ export function ChibiFigure({ team, slot, holdingCup, isMovable = false, isHover
 
         {/* Soft plush belly patch curving with chest contour */}
         <mesh material={bellyMat} position={[0, 0.26, 0.135]} scale={[1.05, 1.25, 0.55]}>
-          <sphereGeometry args={[0.135, 36, 28]} />
+          <sphereGeometry args={[0.135, 20, 14]} />
         </mesh>
 
-        {/* Smooth teardrop animal arms & sculpted feet */}
+        {/* Smooth teardrop animal arms & sculpted feet (tucked forward when sitting at picnic) */}
         {[-1, 1].map((side) => (
           <group key={side}>
             <group ref={side < 0 ? leftArmRef : rightArmRef} position={[side * 0.195, 0.43, 0.03]}>
-              <mesh geometry={armGeo} material={coatMat} castShadow />
+              <mesh geometry={armGeo} material={coatMat} />
+              {/* Marshmallow roasting stick held in right hand */}
+              {side > 0 && showMarshmallow && (
+                <group position={[0, -0.18, 0.04]} rotation={[1.3, 0, 0]}>
+                  <mesh position-y={0.18}>
+                    <cylinderGeometry args={[0.008, 0.008, 0.38, 6]} />
+                    <meshStandardMaterial color="#b07d4f" roughness={0.8} />
+                  </mesh>
+                  <mesh position-y={0.37} rotation-x={Math.PI / 2}>
+                    <cylinderGeometry args={[0.036, 0.036, 0.055, 10]} />
+                    <meshStandardMaterial color="#fff8f0" roughness={0.6} />
+                  </mesh>
+                  <mesh position={[0, 0.37, 0.026]} rotation-x={Math.PI / 2}>
+                    <cylinderGeometry args={[0.032, 0.032, 0.012, 10]} />
+                    <meshStandardMaterial color="#e09f5a" roughness={0.7} />
+                  </mesh>
+                </group>
+              )}
+              {/* Strawberry snack / pastry held in right hand */}
+              {side > 0 && showSnack && (
+                <group position={[-0.02, -0.19, 0.06]}>
+                  <mesh>
+                    <cylinderGeometry args={[0.055, 0.045, 0.014, 12]} />
+                    <meshStandardMaterial color="#ffffff" roughness={0.3} />
+                  </mesh>
+                  <mesh position-y={0.022}>
+                    <boxGeometry args={[0.06, 0.032, 0.055]} />
+                    <meshStandardMaterial color="#ffd6a5" roughness={0.65} />
+                  </mesh>
+                  <mesh position-y={0.042}>
+                    <sphereGeometry args={[0.018, 8, 6]} />
+                    <meshStandardMaterial color="#ff4d6d" roughness={0.35} />
+                  </mesh>
+                </group>
+              )}
             </group>
-            <mesh geometry={footGeo} material={pawMat} position={[side * 0.105, 0.034, 0.055]} castShadow />
+            <mesh
+              geometry={footGeo}
+              material={pawMat}
+              position={isSitting ? [side * 0.145, 0.042, 0.165] : [side * 0.105, 0.034, 0.055]}
+              rotation={isSitting ? [-0.42, side * 0.35, 0] : [0, 0, 0]}
+            />
           </group>
         ))}
 
@@ -637,11 +808,11 @@ export function ChibiFigure({ team, slot, holdingCup, isMovable = false, isHover
         {/* Sunny's sculpted curved neckerchief scarf + smooth ribbon tie */}
         {char.accessory === 'scarf' && (
           <group>
-            <mesh material={accentMat} position-y={0.545} rotation-x={Math.PI / 2} castShadow>
-              <torusGeometry args={[0.15, 0.044, 18, 36]} />
+            <mesh material={accentMat} position-y={0.545} rotation-x={Math.PI / 2}>
+              <torusGeometry args={[0.15, 0.044, 12, 24]} />
             </mesh>
             <group position={[0.095, 0.525, 0.155]} rotation={[0.15, -0.2, 0.24]}>
-              <mesh geometry={getScarfTieGeometry()} material={accentMat} castShadow />
+              <mesh geometry={getScarfTieGeometry()} material={accentMat} />
             </group>
           </group>
         )}
@@ -651,35 +822,35 @@ export function ChibiFigure({ team, slot, holdingCup, isMovable = false, isHover
           <group position={[0, 0.52, 0.155]}>
             {[-1, 1].map((side) => (
               <mesh key={side} material={accentMat} position={[side * 0.042, 0, 0]} rotation-z={side * 0.28} scale={[1.2, 0.85, 0.55]}>
-                <sphereGeometry args={[0.034, 18, 14]} />
+                <sphereGeometry args={[0.034, 12, 10]} />
               </mesh>
             ))}
             <mesh material={accentMat}>
-              <sphereGeometry args={[0.019, 14, 12]} />
+              <sphereGeometry args={[0.019, 10, 8]} />
             </mesh>
           </group>
         )}
 
-        {/* Friendly coffee hangout cup */}
-        <group position={[0.21, 0.39, 0.19]} visible={holdingCup}>
-          <mesh material={getGlossyMaterial('#ffffff')} castShadow>
-            <cylinderGeometry args={[0.058, 0.046, 0.1, 24]} />
+        {/* Friendly coffee hangout / picnic mug */}
+        <group position={[0.21, 0.39, 0.19]} visible={showCoffeeCup}>
+          <mesh material={getGlossyMaterial('#ffffff')}>
+            <cylinderGeometry args={[0.058, 0.046, 0.1, 16]} />
           </mesh>
           <mesh material={getGlossyMaterial('#8d5a3b')} position-y={0.046}>
-            <cylinderGeometry args={[0.048, 0.048, 0.01, 24]} />
+            <cylinderGeometry args={[0.048, 0.048, 0.01, 16]} />
           </mesh>
         </group>
       </group>
 
       {/* Smooth sculpted species head */}
-      <group ref={headRef} position-y={0.75}>
+      <group ref={headRef} position-y={isSitting ? 0.7 : 0.75}>
         <mesh geometry={headGeo} material={coatMat} castShadow receiveShadow />
 
         <AnimalEars species={species} coatMat={coatMat} />
         <HeadAccessory accessory={char.accessory} accent={char.accent} species={species} />
         <AnimalMuzzle species={species} coatColor={coatColor} />
 
-        {/* Glossy 2048px clearcoat eyes & soft blush cheeks */}
+        {/* Glossy clearcoat-feel eyes & soft blush cheeks */}
         {[-1, 1].map((side, i) => (
           <group key={side}>
             <group
@@ -690,7 +861,7 @@ export function ChibiFigure({ team, slot, holdingCup, isMovable = false, isHover
               rotation-y={side * 0.18}
             >
               <mesh material={eyeMat} rotation-y={-Math.PI / 2} scale={[0.38, 1.08, 1]}>
-                <sphereGeometry args={[eyeRadius, 36, 28]} />
+                <sphereGeometry args={[eyeRadius, 20, 16]} />
               </mesh>
             </group>
 
@@ -700,7 +871,7 @@ export function ChibiFigure({ team, slot, holdingCup, isMovable = false, isHover
               rotation-y={side * 0.36}
               scale={[1.3, 0.72, 0.32]}
             >
-              <sphereGeometry args={[0.044, 20, 14]} />
+              <sphereGeometry args={[0.044, 12, 10]} />
             </mesh>
           </group>
         ))}

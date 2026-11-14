@@ -51,7 +51,7 @@ const PIP_LAYOUT: Record<number, [number, number][]> = {
 };
 
 function makeFaceTexture(value: number): THREE.CanvasTexture {
-  const s = 256 * Math.min(window.devicePixelRatio || 1, 2);
+  const s = 256;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d')!;
@@ -133,7 +133,7 @@ function Die() {
   const canRoll = useGameStore((s) => s.game.phase === 'ROLL' && !s.isAnimating);
   const completeRoll = useGameStore((s) => s.completeRoll);
 
-  const geometry = useMemo(() => new RoundedBoxGeometry(SIZE, SIZE, SIZE, 6, SIZE * 0.17), []);
+  const geometry = useMemo(() => new RoundedBoxGeometry(SIZE, SIZE, SIZE, 3, SIZE * 0.17), []);
   const materials = useMemo(
     () => FACE_VALUES.map((value) => createAnimeToonMaterial({ map: makeFaceTexture(value), rimColor: '#ff8fab', rimStrength: 0.25 })),
     [],
@@ -190,14 +190,16 @@ function Die() {
     };
   }, [activeRoll, completeRoll]);
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, rawDelta) => {
     const cube = cubeRef.current;
     const group = groupRef.current;
     const shadow = shadowRef.current;
     if (!cube || !group || !shadow) return;
     // An inviting bob while the die is waiting to be thrown.
+    const dt = Math.min(rawDelta, 0.05);
+    const alpha = 1 - Math.exp(-14 * dt);
     const bob = canRoll ? 0.1 + Math.sin(clock.elapsedTime * 3) * 0.07 : 0;
-    cube.position.y += (bob - cube.position.y) * 0.2;
+    cube.position.y += (bob - cube.position.y) * alpha;
     // The contact shadow shrinks and fades as the die leaves the tray.
     const lift = group.position.y + cube.position.y;
     const spread = 1 - Math.min(lift / (TOSS_HEIGHT * 1.6), 0.6);
@@ -244,7 +246,7 @@ export function DiceTray({ className = '' }: { className?: string }) {
       } ${className}`}
       style={{ backgroundColor: TEAM_COLORS[team] }}
     >
-      <Canvas flat dpr={[1, 2]} camera={{ position: [0, 3.3, 2.5], fov: 34 }} onCreated={({ camera }) => camera.lookAt(0, 0.25, 0)}>
+      <Canvas flat dpr={[1, 1.5]} gl={{ powerPreference: 'high-performance' }} camera={{ position: [0, 3.3, 2.5], fov: 34 }} onCreated={({ camera }) => camera.lookAt(0, 0.25, 0)}>
         <hemisphereLight args={['#ffffff', '#f6d6bd', 1.1]} />
         <directionalLight color="#fff6e6" intensity={2.1} position={[2, 5, 3]} />
         <Die />

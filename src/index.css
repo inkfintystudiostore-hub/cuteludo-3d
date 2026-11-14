@@ -86,6 +86,29 @@ body {
   }
 }
 
+@keyframes podium-cheer {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.02);
+  }
+}
+
+@keyframes rage-wobble {
+  0%,
+  100% {
+    transform: rotate(-1.5deg) translateX(0);
+  }
+  25% {
+    transform: rotate(1.5deg) translateX(-2px);
+  }
+  75% {
+    transform: rotate(-1.5deg) translateX(2px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

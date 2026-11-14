@@ -4,8 +4,10 @@
  */
 import { create } from 'zustand';
 import {
+  HOME_PROGRESS,
   TEAM_LABELS,
   YARD_SLOT_POSITIONS,
+  getHomePicnicPosition,
   getPawnWorldPosition,
   getProgressPosition,
   type PawnWorldPosition,
@@ -185,6 +187,13 @@ function freshState(mode: GameMode, overrideGame?: GameState) {
   };
 }
 
+function ordinal(rank: number): string {
+  if (rank === 1) return '1st';
+  if (rank === 2) return '2nd';
+  if (rank === 3) return '3rd';
+  return `${rank}th`;
+}
+
 function buildMovePatch(state: GameStore, pawnId: string) {
   const { game, legalMoves, stats } = state;
   const effectiveLegal = legalMoves.length > 0 ? legalMoves : game.dice ? applyRoll({ ...game, phase: 'ROLL' }, game.dice).legalMoves : [];
@@ -203,7 +212,11 @@ function buildMovePatch(state: GameStore, pawnId: string) {
       pathWaypoints: [getProgressPosition(team, 0)],
     });
   } else {
-    events.push({ type: 'HOP', pawnId, pathWaypoints: result.path.map((p) => getProgressPosition(team, p)) });
+    events.push({
+      type: 'HOP',
+      pawnId,
+      pathWaypoints: result.path.map((p) => (p === HOME_PROGRESS ? getHomePicnicPosition(team, mover.slot) : getProgressPosition(team, p))),
+    });
   }
 
   for (const victimId of result.captured) {
@@ -232,14 +245,17 @@ function buildMovePatch(state: GameStore, pawnId: string) {
   const [first, ...rest] = events.map((e) => ({ ...e, id: nextEventId++ }) as GameEvent);
   let notice = turnNotice(result.state.currentTeam);
   if (result.state.phase === 'GAME_OVER') notice = `${result.state.winners.map((t) => TEAM_LABELS[t]).join(' & ')} win!`;
+  else if (result.finishedRank !== null) notice = `${TEAM_LABELS[team]} finished ${ordinal(result.finishedRank)}! ${turnNotice(result.state.currentTeam)}`;
   else if (result.captured.length > 0) notice = `Captured! ${TEAM_LABELS[team]} rolls again.`;
   else if (result.bonusRoll) notice = `A six! ${TEAM_LABELS[team]} rolls again.`;
 
   let lastBanner = state.lastBanner;
-  if (result.captured.length > 0) {
+  if (result.finishedRank !== null && result.state.phase !== 'GAME_OVER') {
+    lastBanner = { id: nextEventId++, text: `${TEAM_LABELS[team]} FINISHED ${ordinal(result.finishedRank).toUpperCase()}! Battle continues!`, tone: 'home' };
+  } else if (result.captured.length > 0) {
     lastBanner = { id: nextEventId++, text: `${TEAM_LABELS[team]} CAPTURED! +1 Bonus Roll`, tone: 'capture' };
   } else if (result.reachedHome) {
-    lastBanner = { id: nextEventId++, text: `${TEAM_LABELS[team]} PAWN HOME!`, tone: 'home' };
+    lastBanner = { id: nextEventId++, text: `${TEAM_LABELS[team]} JOINED THE PICNIC!`, tone: 'home' };
   }
 
   const steps = result.kind === 'SPAWN' ? 'leaves the yard' : `moves ${result.to - result.from} (${result.from} to ${result.to})`;

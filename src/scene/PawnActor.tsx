@@ -9,20 +9,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import gsap from 'gsap';
 import * as THREE from 'three';
-import { HOME_PROGRESS, TILE_SURFACE_Y, getPawnWorldPosition, type Pawn, type SharedState } from '../engine/boardMap';
+import { HOME_PICNIC_SCALE, HOME_PROGRESS, TILE_SURFACE_Y, getPawnWorldPosition, type Pawn, type SharedState } from '../engine/boardMap';
 import { areAllies } from '../engine/ludoRules';
 import { canLocalPlayerAct, useGameStore } from '../engine/gameStore';
 import { soundManager } from '../utils/soundManager';
 import { CAPTURE_FLIGHT_DURATION, CAPTURE_TWIRL_DURATION, HOP_DURATION, SPAWN_DURATION } from './animationTiming';
+import { PICNIC_ACTIVITIES } from './ChibiFigure';
 import { PawnModel, type PawnClip } from './PawnModel';
 
 const TAU = Math.PI * 2;
 const HOP_HEIGHT = 0.6;
 const HOP_TILT = THREE.MathUtils.degToRad(12);
 const CAPTURE_APEX_Y = 5.5;
-const HOME_DANCE_SCALE = 1.0;
-const HOME_SETTLED_SCALE = 0.5;
-const HOME_DANCE_MS = 5000;
 
 /** Squash-and-stretch poses as [x, y, z] scale. */
 const STRETCH = { x: 0.9, y: 1.16, z: 0.9 };
@@ -35,14 +33,10 @@ function nearestAngle(current: number, target: number): number {
 }
 
 /** Looping idle for a pawn at rest. Animates only the inner `tilt` group. */
-function buildIdle(tilt: THREE.Group, mood: SharedState | 'home', stagger: number): gsap.core.Timeline | null {
-  if (mood === 'home') {
-    // Victory dance: bounce while spinning a full turn, breathe, repeat.
-    return gsap
-      .timeline({ repeat: -1, repeatDelay: 0.25, delay: stagger })
-      .fromTo(tilt.position, { y: 0 }, { y: 0.45, duration: 0.3, ease: 'power2.out' }, 0)
-      .to(tilt.position, { y: 0, duration: 0.3, ease: 'power2.in' }, 0.3)
-      .fromTo(tilt.rotation, { y: 0 }, { y: TAU, duration: 0.6, ease: 'none' }, 0);
+function buildIdle(tilt: THREE.Group, mood: SharedState | 'picnic', stagger: number): gsap.core.Timeline | null {
+  if (mood === 'picnic') {
+    // Seated peacefully around the campfire — no standing/spinning dance.
+    return null;
   }
   if (mood === 'coffee') {
     // Gentle bob, then lean back for a sip.
@@ -77,7 +71,8 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
 
   const pawns = useGameStore((s) => s.game.pawns);
   const mode = useGameStore((s) => s.game.mode);
-  const simulation = useGameStore((s) => s.simulation);
+  const phase = useGameStore((s) => s.game.phase);
+  const rankings = useGameStore((s) => s.game.rankings);
   const isAnimating = useGameStore((s) => s.isAnimating);
   const lastEvent = useGameStore((s) => s.lastEvent);
   const movable = useGameStore((s) => canLocalPlayerAct(s) && s.legalMoves.includes(pawn.id));
@@ -87,24 +82,15 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
   const completeEvent = useGameStore((s) => s.completeEvent);
 
   const isHome = pawn.progress === HOME_PROGRESS;
-  const [homeSettled, setHomeSettled] = useState(false);
-
-  // Once a pawn arrives home, dance for 5 seconds, then settle calmly at 50% size.
-  useEffect(() => {
-    if (!isHome) {
-      setHomeSettled(false);
-      return;
-    }
-    if (isAnimating || homeSettled) return;
-    const delay = simulation ? HOME_DANCE_MS / 4 : HOME_DANCE_MS;
-    const timer = setTimeout(() => setHomeSettled(true), delay);
-    return () => clearTimeout(timer);
-  }, [isHome, isAnimating, homeSettled, simulation]);
+  const picnicActivity = PICNIC_ACTIVITIES[pawn.slot % PICNIC_ACTIVITIES.length];
+  const finalRank = phase === 'GAME_OVER' ? rankings.indexOf(pawn.team) + 1 : null;
+  const validRank = finalRank && finalRank > 0 ? finalRank : null;
+  const isLastPlace = Boolean(validRank && rankings.length > 1 && validRank === rankings.length);
 
   const layout = useMemo(() => getPawnWorldPosition(pawn, pawns, (a, b) => areAllies(mode, a, b)), [pawn, pawns, mode]);
-  const mood: SharedState | 'home' = isHome ? (homeSettled ? 'solo' : 'home') : layout.sharedState;
-  const restScale = layout.scale * (isHome ? (homeSettled ? HOME_SETTLED_SCALE : HOME_DANCE_SCALE) : 1);
-  const clip: PawnClip = travelling ? 'Hop' : isHome && !homeSettled ? 'Dance' : mood === 'coffee' ? 'SipCoffee' : 'Idle';
+  const mood: SharedState | 'picnic' = isHome ? 'picnic' : layout.sharedState;
+  const restScale = layout.scale;
+  const clip: PawnClip = travelling ? 'Hop' : isHome ? 'Picnic' : mood === 'coffee' ? 'SipCoffee' : 'Idle';
 
   // Settle into the committed layout whenever the board is at rest, then start the idle loop.
   useEffect(() => {
@@ -112,7 +98,7 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
     const root = rootRef.current!;
     const tilt = tiltRef.current!;
     const squash = squashRef.current!;
-    const key = [layout.x, layout.z, layout.rotationY, restScale, mood, homeSettled].join('|');
+    const key = [layout.x, layout.z, layout.rotationY, restScale, mood].join('|');
     if (!dirtyRef.current && key === settledKeyRef.current) return;
     dirtyRef.current = false;
     settledKeyRef.current = key;
@@ -137,7 +123,7 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
     gsap.to(tilt.rotation, { x: 0, y: 0, z: 0, duration: 0.2 });
     gsap.to(squash.scale, { ...NEUTRAL, duration: 0.2 });
     idleRef.current = buildIdle(tilt, mood, 0.3 + pawn.slot * 0.15);
-  }, [isAnimating, layout, restScale, mood, homeSettled, pawn.slot]);
+  }, [isAnimating, layout, restScale, mood, pawn.slot]);
 
   // Play this actor's part in the current event.
   useEffect(() => {
@@ -274,14 +260,12 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
         takeStage();
         setTravelling(false);
         soundManager.playVictory();
+        // Settle straight onto the picnic blanket at small sitting scale (no dancing).
         timeline = gsap
           .timeline({ onComplete: done })
-          .to(root.scale, { x: HOME_DANCE_SCALE, y: HOME_DANCE_SCALE, z: HOME_DANCE_SCALE, duration: 0.45, ease: 'back.out(3)' }, 0)
-          .to(tilt.position, { y: 0.6, duration: 0.25, ease: 'power2.out', yoyo: true, repeat: 1 }, 0)
-          .to(squash.scale, { ...STRETCH, duration: 0.25, ease: 'sine.out' }, 0)
-          .to(tilt.rotation, { y: TAU, duration: 0.5, ease: 'power1.inOut' }, 0)
-          .set(tilt.rotation, { y: 0 });
-        land(timeline, 0.5);
+          .to(root.scale, { x: HOME_PICNIC_SCALE, y: HOME_PICNIC_SCALE, z: HOME_PICNIC_SCALE, duration: 0.38, ease: 'power2.out' }, 0)
+          .to(squash.scale, { ...SQUASH, duration: 0.1, ease: 'power1.out' }, 0)
+          .to(squash.scale, { ...NEUTRAL, duration: 0.32, ease: 'elastic.out(1, 0.45)' }, 0.1);
         break;
       }
 
@@ -316,14 +300,16 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
     [],
   );
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, rawDelta) => {
     const ring = ringRef.current;
     const squash = squashRef.current;
     if (!ring || !squash) return;
     // Pawns that can be clicked bounce on a pulsing ring so the choice is obvious.
+    const dt = Math.min(rawDelta, 0.05);
+    const alpha = 1 - Math.exp(-18 * dt);
     const beat = clock.elapsedTime * 6 + pawn.slot;
     const bounce = movable ? Math.abs(Math.sin(beat)) * 0.2 : 0;
-    squash.position.y += (bounce - squash.position.y) * 0.3;
+    squash.position.y += (bounce - squash.position.y) * alpha;
     if (movable) {
       const pulse = 1 + Math.sin(beat) * 0.12;
       ring.scale.set(pulse, pulse, 1);
@@ -381,6 +367,10 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
             holdingCup={mood === 'coffee'}
             isMovable={movable}
             isHovered={isHovered}
+            isSitting={isHome}
+            picnicActivity={picnicActivity}
+            finalRank={validRank}
+            isLastPlace={isLastPlace}
           />
         </group>
       </group>

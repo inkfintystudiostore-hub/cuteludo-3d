@@ -8,6 +8,7 @@ import {
   PAWNS_PER_TEAM,
   TEAM_IDS,
   YARD_PROGRESS,
+  getHomePicnicPosition,
   getProgressPosition,
   getTileMates,
   getTrackIndex,
@@ -17,7 +18,7 @@ import {
   type WorldPoint,
 } from './boardMap';
 
-export type GameMode = '2P_COUPLES' | '4P_FFA' | '2V2_TEAM';
+export type GameMode = '2P_COUPLES' | '3P_FFA' | '4P_FFA' | '2V2_TEAM';
 export type Phase = 'ROLL' | 'MOVE' | 'GAME_OVER';
 
 export interface GameState {
@@ -31,12 +32,15 @@ export interface GameState {
   dice: number | null;
   /** Consecutive sixes rolled by the current team this turn. */
   sixStreak: number;
-  /** Empty until the game ends. Two teams in 2V2_TEAM, otherwise one. */
+  /** Empty until the game ends. Two teams in 2V2_TEAM, otherwise the 1st-place team. */
   winners: TeamId[];
+  /** Ordered placements (1st, 2nd, 3rd, 4th) as teams finish; complete once GAME_OVER. */
+  rankings: TeamId[];
 }
 
 export const MODE_TEAMS: Record<GameMode, TeamId[]> = {
   '2P_COUPLES': ['PINK', 'YELLOW'], // diagonal corners
+  '3P_FFA': ['PINK', 'CYAN', 'YELLOW'],
   '4P_FFA': [...TEAM_IDS],
   '2V2_TEAM': [...TEAM_IDS],
 };
@@ -53,7 +57,17 @@ export function createGame(mode: GameMode): GameState {
   const pawns = activeTeams.flatMap((team) =>
     Array.from({ length: PAWNS_PER_TEAM }, (_, slot): Pawn => ({ id: `${team}-${slot}`, team, slot, progress: YARD_PROGRESS })),
   );
-  return { mode, activeTeams, pawns, currentTeam: activeTeams[0], phase: 'ROLL', dice: null, sixStreak: 0, winners: [] };
+  return {
+    mode,
+    activeTeams,
+    pawns,
+    currentTeam: activeTeams[0],
+    phase: 'ROLL',
+    dice: null,
+    sixStreak: 0,
+    winners: [],
+    rankings: [],
+  };
 }
 
 export function rollDie(random: () => number = Math.random): number {
@@ -133,6 +147,8 @@ export interface MoveResult {
   captured: string[];
   reachedHome: boolean;
   bonusRoll: boolean;
+  /** 1-based placement if this move finished all 4 pawns of the mover's team, else null. */
+  finishedRank: number | null;
   /** Ids of pawns the mover now shares its tile with (excluding the Home goal). */
   sharedWith: string[];
 }
@@ -170,7 +186,7 @@ export function getMovePreview(state: GameState, pawnId: string): MovePreview | 
   const from = pawn.progress;
   const kind = from === YARD_PROGRESS ? 'SPAWN' : 'MOVE';
   const path = kind === 'SPAWN' ? [0] : Array.from({ length: state.dice }, (_, i) => from + i + 1);
-  const waypoints = path.map((p) => getProgressPosition(pawn.team, p));
+  const waypoints = path.map((p) => (p === HOME_PROGRESS ? getHomePicnicPosition(pawn.team, pawn.slot) : getProgressPosition(pawn.team, p)));
   const trackIndex = getTrackIndex(pawn.team, to);
   const willCapture = findCapturesAt(state, pawn, to);
   const isSafeLanding = to > LAST_TRACK_PROGRESS || (trackIndex !== null && isSafeTrackIndex(trackIndex));
@@ -239,18 +255,37 @@ export function applyMove(state: GameState, pawnId: string): MoveResult {
   const team = pawn.team;
   const teamDone = isTeamFinished(pawns, team);
 
+  const rankings = [...state.rankings];
+  let finishedRank: number | null = null;
+  if (teamDone && !rankings.includes(team)) {
+    rankings.push(team);
+    finishedRank = rankings.length;
+  }
+
   let winners: TeamId[] = [];
-  if (teamDone) {
-    if (state.mode !== '2V2_TEAM') winners = [team];
-    else if (isTeamFinished(pawns, PARTNER[team])) winners = [team, PARTNER[team]];
+  if (state.mode === '2V2_TEAM') {
+    if (teamDone && isTeamFinished(pawns, PARTNER[team])) {
+      winners = [team, PARTNER[team]];
+      for (const t of state.activeTeams) {
+        if (!rankings.includes(t)) rankings.push(t);
+      }
+    }
+  } else {
+    const unfinished = state.activeTeams.filter((t) => !isTeamFinished(pawns, t));
+    if (unfinished.length <= 1) {
+      for (const t of unfinished) {
+        if (!rankings.includes(t)) rankings.push(t);
+      }
+      if (rankings.length > 0) winners = [rankings[0]];
+    }
   }
 
   const bonusRoll = winners.length === 0 && !teamDone && (dice === 6 || captured.length > 0);
-  const base: GameState = { ...state, pawns };
+  const base: GameState = { ...state, pawns, rankings };
   let next: GameState;
   if (winners.length > 0) next = { ...base, phase: 'GAME_OVER', winners };
   else if (bonusRoll) next = { ...base, phase: 'ROLL', sixStreak: dice === 6 ? state.sixStreak : 0 };
   else next = passTurn(base);
 
-  return { state: next, pawnId, kind, from, to, path, captured, reachedHome, bonusRoll, sharedWith };
+  return { state: next, pawnId, kind, from, to, path, captured, reachedHome, bonusRoll, finishedRank, sharedWith };
 }

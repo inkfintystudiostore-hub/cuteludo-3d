@@ -286,9 +286,19 @@ function TopLeftGameMenu() {
   );
 }
 
+function rankBadgeText(rank: number, total: number): string {
+  if (rank === 1) return '👑 1st';
+  if (rank === total && total > 1) return `🐢 ${rank}th`;
+  if (rank === 2) return '🥈 2nd';
+  if (rank === 3) return '🥉 3rd';
+  return `#${rank}`;
+}
+
 function StatusBadge({ team }: { team: TeamId }) {
   const active = useGameStore((s) => s.game.activeTeams.includes(team));
   const isTurn = useGameStore((s) => s.game.currentTeam === team && s.game.phase !== 'GAME_OVER');
+  const rankings = useGameStore((s) => s.game.rankings);
+  const totalTeams = useGameStore((s) => s.game.activeTeams.length);
   const vsAi = useGameStore((s) => s.vsAi);
   const room = useGameStore((s) => s.room);
   const home = useGameStore((s) => s.game.pawns.filter((p) => p.team === team && p.progress === HOME_PROGRESS).length);
@@ -296,10 +306,12 @@ function StatusBadge({ team }: { team: TeamId }) {
   const onRight = team === 'CYAN' || team === 'YELLOW';
   if (!active) return <div style={{ gridArea: GRID_AREA[team] }} />;
 
+  const rankIndex = rankings.indexOf(team);
+  const rank = rankIndex >= 0 ? rankIndex + 1 : null;
   const seat = room?.online ? room.seats.find((s) => s.team === team) : undefined;
   const isMe = Boolean(room?.online && room.myTeam === team);
   const isBot = room?.online ? seat?.occupant === 'bot' : vsAi && team !== 'PINK';
-  const summary = `${TEAM_LABELS[team]}${isMe ? ' (You)' : isBot ? ' (AI)' : ''}: ${home} of ${PAWNS_PER_TEAM} home, ${yard} in the yard${isTurn ? ', current turn' : ''}`;
+  const summary = `${TEAM_LABELS[team]}${isMe ? ' (You)' : isBot ? ' (AI)' : ''}: ${home} of ${PAWNS_PER_TEAM} home, ${yard} in the yard${rank ? `, finished ${rank}` : isTurn ? ', current turn' : ''}`;
   return (
     <div style={{ gridArea: GRID_AREA[team] }} className={`flex ${onRight ? 'justify-end' : 'justify-start'} landscape:justify-center`}>
       <div
@@ -331,10 +343,21 @@ function StatusBadge({ team }: { team: TeamId }) {
             </span>
           </span>
         </span>
-        {isTurn && (
-          <span aria-hidden className="absolute -top-3 -right-2 rotate-6 rounded-md bg-ink px-1.5 py-0.5 text-xs font-bold tracking-wider text-white uppercase">
-            Turn
+        {rank !== null ? (
+          <span
+            aria-hidden
+            className={`absolute -top-3 -right-2 rotate-6 rounded-md border-2 border-ink px-1.5 py-0.5 text-[11px] font-bold tracking-wider uppercase ${
+              rank === 1 ? 'bg-[#ffd875] text-ink' : rank === totalTeams && totalTeams > 1 ? 'bg-[#ff8fab] text-ink' : 'bg-[#e8eef5] text-ink'
+            }`}
+          >
+            {rankBadgeText(rank, totalTeams)}
           </span>
+        ) : (
+          isTurn && (
+            <span aria-hidden className="absolute -top-3 -right-2 rotate-6 rounded-md bg-ink px-1.5 py-0.5 text-xs font-bold tracking-wider text-white uppercase">
+              Turn
+            </span>
+          )
         )}
       </div>
     </div>
@@ -549,56 +572,206 @@ function PauseOverlay() {
   );
 }
 
+interface PlacementMeta {
+  badge: string;
+  title: string;
+  roast: string;
+  cardBg: string;
+  animClass: string;
+}
+
+function getPlacementMeta(rank: number, total: number, is2v2: boolean, isWinner: boolean): PlacementMeta {
+  if (is2v2) {
+    return isWinner
+      ? {
+          badge: '👑 1ST • CHAMPS',
+          title: 'Victory Picnic!',
+          roast: 'Dynamic duo toasted every marshmallow in VIP 🔥',
+          cardBg: 'bg-[#fff2b2]',
+          animClass: 'motion-safe:animate-[podium-cheer_0.95s_ease-in-out_infinite]',
+        }
+      : {
+          badge: '💀 2ND • COOKED',
+          title: 'Out-Rolled!',
+          roast: 'Skill issue detected — cold marshmallows for this squad 😭',
+          cardBg: 'bg-[#ffe0ea]',
+          animClass: 'motion-safe:animate-[rage-wobble_0.48s_ease-in-out_infinite]',
+        };
+  }
+
+  if (rank === 1) {
+    return {
+      badge: '👑 1ST PLACE',
+      title: 'Picnic Royalty',
+      roast: 'Main character energy! Too fast, too fur-ious 🔥',
+      cardBg: 'bg-[#fff2b2]',
+      animClass: 'motion-safe:animate-[podium-cheer_0.95s_ease-in-out_infinite]',
+    };
+  }
+  if (rank === total && total > 1) {
+    return {
+      badge: `🐢 ${rank}TH • LAST`,
+      title: 'Certified Board Warmer',
+      roast: 'Still sightseeing on the track?! Have you tried rolling a 6? 💀',
+      cardBg: 'bg-[#ffe0ea]',
+      animClass: 'motion-safe:animate-[rage-wobble_0.48s_ease-in-out_infinite]',
+    };
+  }
+  if (rank === 2) {
+    return {
+      badge: '🥈 2ND PLACE',
+      title: 'Almost Gold!',
+      roast: 'Missed 1st by THAT much — extra coffee earned ☕',
+      cardBg: 'bg-[#e6f7ff]',
+      animClass: '',
+    };
+  }
+  return {
+    badge: '🥉 3RD PLACE',
+    title: 'Not Last!',
+    roast: 'Beat the wooden spoon — cozy marshmallow secured 🏕️',
+    cardBg: 'bg-[#ffecd9]',
+    animClass: '',
+  };
+}
+
 function WinnerOverlay() {
   const screen = useGameStore((s) => s.screen);
+  const phase = useGameStore((s) => s.game.phase);
+  const mode = useGameStore((s) => s.game.mode);
   const winners = useGameStore((s) => s.game.winners);
+  const rankings = useGameStore((s) => s.game.rankings);
+  const activeTeams = useGameStore((s) => s.game.activeTeams);
+  const vsAi = useGameStore((s) => s.vsAi);
+  const room = useGameStore((s) => s.room);
   const stats = useGameStore((s) => s.stats);
   const resetGame = useGameStore((s) => s.resetGame);
   const exitToHome = useGameStore((s) => s.exitToHome);
-  if (screen !== 'playing' || winners.length === 0) return null;
+  const [peeking, setPeeking] = useState(false);
+
+  useEffect(() => {
+    if (phase !== 'GAME_OVER') setPeeking(false);
+  }, [phase]);
+
+  if (screen !== 'playing' || phase !== 'GAME_OVER' || rankings.length === 0) return null;
+
+  const myTeam: TeamId | null = room?.online ? room.myTeam : vsAi ? 'PINK' : null;
+  const is2v2 = mode === '2V2_TEAM';
+  const iWon = Boolean(myTeam && winners.includes(myTeam));
+  const iLostLast = Boolean(myTeam && !iWon && (is2v2 || (rankings.length > 1 && myTeam === rankings[rankings.length - 1])));
+
+  const headerPill = iWon
+    ? '👑 CERTIFIED PICNIC ROYALTY'
+    : iLostLast
+      ? '🤡 CERTIFIED BOARD WARMER'
+      : '🏕️ FINAL PICNIC STANDINGS';
+  const headline = iWon
+    ? 'YOU COOKED EVERYONE!'
+    : iLostLast
+      ? 'YOU GOT COOKED! 💀'
+      : `${winners.map((t) => TEAM_LABELS[t]).join(' & ')} ${winners.length > 1 ? 'WIN' : 'WINS'}!`;
+  const subline = iWon
+    ? 'Everyone else is still in traffic while you roast marshmallows by the fire.'
+    : iLostLast
+      ? 'Skill issue? The dice literally laughed at you. Run it back!'
+      : 'Every animal’s fate is sealed — check the campfire vibes!';
+
+  if (peeking) {
+    return (
+      <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
+        <button
+          type="button"
+          onClick={() => setPeeking(false)}
+          className={`pointer-events-auto flex items-center gap-2 rounded-full bg-[#ffd875] px-5 py-2 text-sm font-bold uppercase ${INK_BUTTON}`}
+        >
+          <TrophyIcon className="size-4" />
+          Show Standings ({winners.map((t) => TEAM_LABELS[t]).join(' & ')} Won)
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="absolute inset-0 z-30 grid place-items-center bg-ink/40 p-6">
+    <div className="absolute inset-0 z-30 grid place-items-center bg-ink/40 p-4 backdrop-blur-[2px]">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="winner-title"
-        className={`flex -rotate-1 flex-col items-center gap-4 rounded-3xl bg-white px-8 py-7 text-center motion-safe:animate-[pop-in_0.4s_ease-out] ${INK_BOX}`}
+        className={`flex max-h-[92dvh] w-full max-w-md flex-col items-center gap-3 overflow-y-auto rounded-3xl bg-[#fff8f5] px-5 py-5 text-center motion-safe:animate-[pop-in_0.4s_ease-out] ${INK_BOX}`}
       >
-        <div className="inline-flex items-center gap-2 rounded-full border-2 border-ink bg-[#ffc93c] px-3 py-1 text-xs font-bold tracking-wider uppercase">
+        <div
+          className={`inline-flex items-center gap-1.5 rounded-full border-2 border-ink px-3 py-1 text-xs font-bold tracking-wider uppercase ${
+            iLostLast ? 'bg-[#ff8fab]' : 'bg-[#ffc93c]'
+          }`}
+        >
           <TrophyIcon className="size-4" />
-          Match Complete
+          {headerPill}
         </div>
-        <div aria-hidden className="flex gap-2">
-          {winners.map((team) => (
-            <span key={team} className="grid size-14 place-items-center rounded-2xl border-[3px] border-ink shadow-ink-sm" style={{ backgroundColor: TEAM_COLORS[team] }}>
-              <MascotIcon team={team} className="size-8" />
-            </span>
-          ))}
+
+        <div>
+          <h2 id="winner-title" className="text-2xl font-bold tracking-wide uppercase sm:text-3xl">
+            {headline}
+          </h2>
+          <p className="mt-0.5 text-xs font-semibold text-ink/75">{subline}</p>
         </div>
-        <h2 id="winner-title" className="text-3xl font-bold tracking-wide uppercase">
-          {winners.map((t) => TEAM_LABELS[t]).join(' & ')} {winners.length > 1 ? 'win' : 'wins'}!
-        </h2>
-        <div className="flex gap-4 rounded-2xl border-2 border-ink/20 bg-[#fff8f0] px-5 py-2 text-xs font-bold uppercase">
+
+        {/* 1st / 2nd / 3rd / 4th Animated Podium List */}
+        <ol aria-label="Final rankings" className="flex w-full flex-col gap-2 text-left">
+          {rankings.map((team, idx) => {
+            const rank = idx + 1;
+            const meta = getPlacementMeta(rank, activeTeams.length, is2v2, winners.includes(team));
+            const isMe = myTeam === team;
+            return (
+              <li
+                key={team}
+                className={`flex items-center gap-2.5 rounded-2xl border-[2.5px] border-ink px-3 py-2 shadow-ink-sm ${meta.cardBg} ${meta.animClass}`}
+              >
+                <span
+                  aria-hidden
+                  className="grid size-10 shrink-0 place-items-center rounded-xl border-2 border-ink"
+                  style={{ backgroundColor: TEAM_COLORS[team] }}
+                >
+                  <MascotIcon team={team} className="size-6" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="rounded-md border border-ink bg-white px-1.5 py-0.5 text-[10px] font-bold uppercase">
+                      {meta.badge}
+                    </span>
+                    <span className="text-sm font-bold uppercase">{TEAM_LABELS[team]}</span>
+                    {isMe && <span className="rounded bg-[#80ed99] px-1 text-[10px] font-bold">YOU</span>}
+                  </div>
+                  <p className="mt-0.5 text-[11px] leading-tight font-semibold text-ink/80">{meta.roast}</p>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+
+        <div className="flex gap-4 rounded-2xl border-2 border-ink/20 bg-white px-5 py-1.5 text-xs font-bold uppercase">
           <div>
-            <span className="block text-base">{stats.turns}</span>
+            <span className="block text-sm">{stats.turns}</span>
             Rolls
           </div>
           <div>
-            <span className="block text-base">{stats.captures}</span>
+            <span className="block text-sm">{stats.captures}</span>
             Captures
           </div>
           <div>
-            <span className="block text-base">{stats.sixes}</span>
+            <span className="block text-sm">{stats.sixes}</span>
             Sixes
           </div>
         </div>
+
         <div className="flex flex-wrap justify-center gap-2">
-          <button type="button" autoFocus onClick={resetGame} className={`min-h-11 rounded-full bg-[#ff8fab] px-6 text-base font-bold tracking-wide uppercase ${INK_BUTTON}`}>
-            Play again
+          <button type="button" autoFocus onClick={resetGame} className={`min-h-10 rounded-full bg-[#ff8fab] px-5 text-sm font-bold tracking-wide uppercase ${INK_BUTTON}`}>
+            Play Again
           </button>
-          <button type="button" onClick={exitToHome} className={`min-h-11 rounded-full bg-[#fff8f0] px-5 text-base font-bold tracking-wide uppercase ${INK_BUTTON}`}>
-            Home Menu
+          <button type="button" onClick={() => setPeeking(true)} className={`min-h-10 rounded-full bg-[#a9f0ff] px-4 text-sm font-bold tracking-wide uppercase ${INK_BUTTON}`}>
+            View Picnic
+          </button>
+          <button type="button" onClick={exitToHome} className={`min-h-10 rounded-full bg-white px-4 text-sm font-bold tracking-wide uppercase ${INK_BUTTON}`}>
+            Home
           </button>
         </div>
       </div>

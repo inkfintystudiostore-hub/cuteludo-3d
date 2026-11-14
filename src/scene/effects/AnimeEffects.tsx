@@ -10,7 +10,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
-  HOME_GOAL_POSITIONS,
+  HOME_PROGRESS,
+  getHomePicnicPosition,
   getPawnWorldPosition,
   getProgressPosition,
   getTileKey,
@@ -33,7 +34,7 @@ export const EMOTES: readonly { id: EmoteId; emoji: string; label: string }[] = 
 
 export type EffectRequest =
   | {
-      type: 'confetti' | 'sparkle' | 'bang' | 'speedRing' | 'dustLanding' | 'steam' | 'squabble';
+      type: 'confetti' | 'sparkle' | 'bang' | 'speedRing' | 'dustLanding' | 'steam' | 'squabble' | 'picnicNote';
       x: number;
       z: number;
       /** Height of the emitter; each effect has a sensible default. */
@@ -52,7 +53,7 @@ export function emitEffect(request: EffectRequest): void {
 
 type SpriteKind = 'star' | 'heart' | 'puff' | 'steam' | 'note' | 'anger' | 'bang' | 'line' | `emote-${EmoteId}`;
 
-const TEXTURE_SIZE = 192;
+const TEXTURE_SIZE = 128;
 const PASTELS = ['#ff8fab', '#72efdd', '#ffd166', '#80ed99', '#cdb4ff', '#ffffff'];
 const TAU = Math.PI * 2;
 
@@ -346,6 +347,15 @@ function buildEffect(request: EffectRequest, spawn: Spawn): void {
       );
       break;
     }
+    case 'picnicNote':
+      spawn(
+        'note',
+        particle(
+          { x: x + rand(-0.12, 0.12), y: request.y ?? 0.62, z: z + rand(-0.12, 0.12), delay, vy: 0.65, drag: 0.4, life: 1.35, size: 0.24, sway: 0.08, rot: rand(-0.25, 0.25) },
+          pick(PASTELS),
+        ),
+      );
+      break;
   }
 }
 
@@ -362,8 +372,11 @@ const AMBIENT_INTERVAL = 0.55;
 export function AnimeEffects() {
   const pawns = useGameStore((s) => s.game.pawns);
   const mode = useGameStore((s) => s.game.mode);
+  const phase = useGameStore((s) => s.game.phase);
+  const rankings = useGameStore((s) => s.game.rankings);
   const lastEvent = useGameStore((s) => s.lastEvent);
   const ambientClock = useRef(0);
+  const picnicClock = useRef(0);
 
   const layers = useMemo(() => {
     const geometry = new THREE.PlaneGeometry(1, 1);
@@ -400,6 +413,17 @@ export function AnimeEffects() {
     return [...tiles.values()];
   }, [pawns, mode]);
 
+  const picnicSpots = useMemo(() => {
+    const spots: (WorldPoint & { kind: 'steam' | 'picnicNote' })[] = [];
+    for (const pawn of pawns) {
+      if (pawn.progress !== HOME_PROGRESS) continue;
+      const seat = getHomePicnicPosition(pawn.team, pawn.slot);
+      if (pawn.slot === 1) spots.push({ ...seat, kind: 'steam' });
+      else if (pawn.slot === 3) spots.push({ ...seat, kind: 'picnicNote' });
+    }
+    return spots;
+  }, [pawns]);
+
   // Effects that accompany each game event, timed against the pawn animations.
   useEffect(() => {
     if (!lastEvent) return;
@@ -411,7 +435,7 @@ export function AnimeEffects() {
       }
       case 'REACH_HOME': {
         const pawn = useGameStore.getState().game.pawns.find((p) => p.id === lastEvent.pawnId);
-        if (pawn) emitEffect({ type: 'confetti', ...HOME_GOAL_POSITIONS[pawn.team], y: 1 });
+        if (pawn) emitEffect({ type: 'sparkle', ...getHomePicnicPosition(pawn.team, pawn.slot), y: 0.65 });
         break;
       }
       case 'CAPTURE': {
@@ -432,6 +456,24 @@ export function AnimeEffects() {
     }
   }, [lastEvent]);
 
+  // Distinct end-of-game burst for 1st place celebration vs last-place comic rage!
+  useEffect(() => {
+    if (phase !== 'GAME_OVER' || rankings.length === 0) return;
+    const firstTeam = rankings[0];
+    const lastTeam = rankings.length > 1 ? rankings[rankings.length - 1] : null;
+    for (let s = 0; s < 2; s++) {
+      const seat = getHomePicnicPosition(firstTeam, s);
+      emitEffect({ type: 'confetti', x: seat.x, z: seat.z, y: 0.9, delay: s * 0.15 });
+    }
+    if (lastTeam) {
+      const statePawns = useGameStore.getState().game.pawns.filter((p) => p.team === lastTeam);
+      for (const p of statePawns.slice(0, 2)) {
+        const pos = getPawnWorldPosition(p, useGameStore.getState().game.pawns);
+        emitEffect({ type: 'squabble', x: pos.x, z: pos.z, y: 1.15, delay: 0.2 });
+      }
+    }
+  }, [phase, rankings]);
+
   const scratch = useMemo(
     () => ({ matrix: new THREE.Matrix4(), position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), roll: new THREE.Quaternion(), scale: new THREE.Vector3(), forward: new THREE.Vector3(0, 0, 1) }),
     [],
@@ -444,6 +486,15 @@ export function AnimeEffects() {
     if (ambientClock.current >= AMBIENT_INTERVAL) {
       ambientClock.current = 0;
       for (const tile of sharedTiles) emitEffect({ type: tile.state === 'coffee' ? 'steam' : 'squabble', x: tile.x, z: tile.z });
+    }
+
+    picnicClock.current += dt;
+    if (picnicClock.current >= 1.15) {
+      picnicClock.current = 0;
+      if (picnicSpots.length > 0) {
+        const spot = picnicSpots[Math.floor(Math.random() * picnicSpots.length)];
+        emitEffect({ type: spot.kind, x: spot.x, z: spot.z, y: 0.55 });
+      }
     }
 
     if (pendingRequests.length > 0) {

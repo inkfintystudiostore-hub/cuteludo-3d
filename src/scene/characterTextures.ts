@@ -14,13 +14,13 @@ let furBumpCache: THREE.CanvasTexture | null = null;
 
 export type EyeMood = 'cheeky' | 'sharp' | 'sleepy' | 'sparkle' | 'frog';
 
-/** Hyper-crisp 2048px resin/anime animal eye texture with luminous iris depth & catchlights. */
+/** Crisp 512px resin/anime animal eye texture with luminous iris depth & catchlights. */
 export function getAnimeEyeTexture(mood: EyeMood, irisColor = '#2b213a'): THREE.CanvasTexture {
   const key = `${mood}|${irisColor}`;
   const cached = eyeCache.get(key);
   if (cached) return cached;
 
-  const s = 2048;
+  const s = 512;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d')!;
@@ -115,18 +115,19 @@ export function getAnimeEyeTexture(mood: EyeMood, irisColor = '#2b213a'): THREE.
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
+  texture.anisotropy = 4;
   eyeCache.set(key, texture);
   return texture;
 }
 
-/** Smooth 2048px coat texture with soft ambient fur gradients and species markings. */
+/** Smooth 512px coat texture with soft ambient fur gradients and species markings. */
 export function getAnimalCoatTexture(species: AnimalSpecies, coatColor: string): THREE.CanvasTexture {
   const key = `${species}|${coatColor}`;
   const cached = coatCache.get(key);
   if (cached) return cached;
 
-  const s = 2048;
+  const s = 512;
+  const k = s / 2048;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d')!;
@@ -149,9 +150,9 @@ export function getAnimalCoatTexture(species: AnimalSpecies, coatColor: string):
     ctx.fillStyle = spotColor;
     ctx.globalAlpha = 0.24;
     for (let i = 0; i < 42; i++) {
-      const x = ((i * 397) % 1840) + 100;
-      const y = ((i * 251) % 860) + 120;
-      const r = 18 + (i % 5) * 9;
+      const x = (((i * 397) % 1840) + 100) * k;
+      const y = (((i * 251) % 860) + 120) * k;
+      const r = (18 + (i % 5) * 9) * k;
       ctx.beginPath();
       ctx.ellipse(x, y, r * 1.15, r * 0.85, (i % 7) * 0.4, 0, Math.PI * 2);
       ctx.fill();
@@ -161,28 +162,28 @@ export function getAnimalCoatTexture(species: AnimalSpecies, coatColor: string):
     // Soft plush fur heather strokes across the surface.
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
     ctx.lineCap = 'round';
-    ctx.lineWidth = 4;
-    for (let i = 0; i < 420; i++) {
-      const x = (i * 487) % s;
-      const y = (i * 331) % s;
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 240; i++) {
+      const x = ((i * 487) % 2048) * k;
+      const y = ((i * 331) % 2048) * k;
       ctx.beginPath();
       ctx.moveTo(x, y);
-      ctx.lineTo(x + ((i % 3) - 1) * 6, y + 18);
+      ctx.lineTo(x + ((i % 3) - 1) * 6 * k, y + 18 * k);
       ctx.stroke();
     }
   }
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
+  texture.anisotropy = 4;
   coatCache.set(key, texture);
   return texture;
 }
 
-/** Shared seamless 1024px plush microfiber bump map for tactile velvety depth. */
+/** Shared seamless 256px plush microfiber bump map for tactile velvety depth. */
 export function getAnimalFurBumpTexture(): THREE.CanvasTexture {
   if (furBumpCache) return furBumpCache;
-  const s = 1024;
+  const s = 256;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d')!;
@@ -190,15 +191,15 @@ export function getAnimalFurBumpTexture(): THREE.CanvasTexture {
   ctx.fillStyle = '#808080';
   ctx.fillRect(0, 0, s, s);
 
-  for (let i = 0; i < 2400; i++) {
+  for (let i = 0; i < 600; i++) {
     const x = (i * 373) % s;
     const y = (i * 617) % s;
     const bright = i % 2 === 0 ? 'rgba(220,220,220,0.16)' : 'rgba(60,60,60,0.14)';
     ctx.strokeStyle = bright;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(x, y);
-    ctx.lineTo(x + ((i % 5) - 2) * 3, y + 7);
+    ctx.lineTo(x + ((i % 5) - 2), y + 3);
     ctx.stroke();
   }
 
@@ -206,18 +207,18 @@ export function getAnimalFurBumpTexture(): THREE.CanvasTexture {
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(3, 3);
-  texture.anisotropy = 8;
+  texture.anisotropy = 2;
   furBumpCache = texture;
   return texture;
 }
 
-/** High-resolution (2048px) garment fabric texture preserved for external callers. */
+/** Garment fabric texture preserved for external callers. */
 export function getOutfitTexture(slot: number, baseColor: string, accentColor: string): THREE.CanvasTexture {
   const key = `${slot}|${baseColor}|${accentColor}`;
   const cached = outfitCache.get(key);
   if (cached) return cached;
 
-  const s = 2048;
+  const s = 512;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d')!;
@@ -226,8 +227,8 @@ export function getOutfitTexture(slot: number, baseColor: string, accentColor: s
   ctx.fillRect(0, 0, s, s);
 
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
-  ctx.lineWidth = 3;
-  for (let i = 0; i < s; i += 24) {
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < s; i += 8) {
     ctx.beginPath();
     ctx.moveTo(0, i);
     ctx.lineTo(s, i);
@@ -238,7 +239,7 @@ export function getOutfitTexture(slot: number, baseColor: string, accentColor: s
   if (slot === 0) {
     ctx.fillStyle = accentColor;
     ctx.fillRect(0, s * 0.78, s, s * 0.08);
-    drawStar(ctx, frontX, s * 0.44, s * 0.085, s * 0.038, '#ffd166', INK, 10);
+    drawStar(ctx, frontX, s * 0.44, s * 0.085, s * 0.038, '#ffd166', INK, 3);
   } else if (slot === 1) {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(frontX - s * 0.055, s * 0.15, s * 0.11, s * 0.65);
@@ -249,7 +250,7 @@ export function getOutfitTexture(slot: number, baseColor: string, accentColor: s
       ctx.arc(frontX, s * by, s * 0.018, 0, Math.PI * 2);
       ctx.fillStyle = '#ffd166';
       ctx.fill();
-      ctx.lineWidth = 6;
+      ctx.lineWidth = 2;
       ctx.strokeStyle = INK;
       ctx.stroke();
     }
@@ -258,9 +259,9 @@ export function getOutfitTexture(slot: number, baseColor: string, accentColor: s
     for (const sy of [0.3, 0.46, 0.62]) ctx.fillRect(0, s * sy, s, s * 0.035);
     ctx.fillStyle = accentColor;
     ctx.strokeStyle = INK;
-    ctx.lineWidth = 8;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.roundRect(frontX + s * 0.04, s * 0.42, s * 0.09, s * 0.1, 18);
+    ctx.roundRect(frontX + s * 0.04, s * 0.42, s * 0.09, s * 0.1, 6);
     ctx.fill();
     ctx.stroke();
   } else {
@@ -278,7 +279,7 @@ export function getOutfitTexture(slot: number, baseColor: string, accentColor: s
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
+  texture.anisotropy = 4;
   outfitCache.set(key, texture);
   return texture;
 }

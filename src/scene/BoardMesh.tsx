@@ -21,7 +21,7 @@ import {
 } from '../engine/boardMap';
 import { useGameStore } from '../engine/gameStore';
 import { BoardPreview } from './BoardPreview';
-import { getTeamEmblemTexture, getWoodTexture } from './boardTextures';
+import { getPicnicBlanketTexture, getTeamEmblemTexture, getWoodTexture } from './boardTextures';
 import { getAnimeToonMaterial } from './shaders/animeToonMaterial';
 
 const WOOD = '#fff4e0';
@@ -310,10 +310,39 @@ function wedgeGeometry(team: TeamId): THREE.BufferGeometry {
   return geometry;
 }
 
-/** The 3x3 Home goal in the middle: four coloured wedges, ink dividers, and a central crest. */
+const STONE_ANGLES = Array.from({ length: 8 }, (_, i) => (i / 8) * Math.PI * 2);
+
+/** The 3x3 Home picnic clearing: four coloured wedges, gingham blanket, animated bonfire & snacks. */
 function HomeCentre() {
   const wedges = useMemo(() => TEAM_IDS.map((team) => ({ team, geometry: wedgeGeometry(team) })), []);
-  const crestStar = useMemo(() => new THREE.ShapeGeometry(starShape(0.22, 0.1)), []);
+  const blanketMap = useMemo(() => getPicnicBlanketTexture(), []);
+  const flameMainRef = useRef<THREE.Mesh>(null);
+  const flameLeftRef = useRef<THREE.Mesh>(null);
+  const flameRightRef = useRef<THREE.Mesh>(null);
+  const emberRef = useRef<THREE.Mesh>(null);
+  const fireLightRef = useRef<THREE.PointLight>(null);
+
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    if (flameMainRef.current) {
+      flameMainRef.current.scale.set(1 + Math.sin(t * 9) * 0.08, 1 + Math.sin(t * 11.5) * 0.14, 1 + Math.cos(t * 8) * 0.08);
+      flameMainRef.current.rotation.z = Math.sin(t * 6.5) * 0.09;
+    }
+    if (flameLeftRef.current) {
+      flameLeftRef.current.scale.setScalar(1 + Math.cos(t * 10.2) * 0.12);
+      flameLeftRef.current.rotation.z = 0.25 + Math.sin(t * 7.8) * 0.1;
+    }
+    if (flameRightRef.current) {
+      flameRightRef.current.scale.setScalar(1 + Math.sin(t * 8.7 + 1.2) * 0.12);
+      flameRightRef.current.rotation.z = -0.25 + Math.cos(t * 7.1) * 0.1;
+    }
+    if (emberRef.current) {
+      (emberRef.current.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.45 + Math.sin(t * 7) * 0.25;
+    }
+    if (fireLightRef.current) {
+      fireLightRef.current.intensity = 0.55 + Math.sin(t * 8.5) * 0.12;
+    }
+  });
 
   return (
     <group>
@@ -322,26 +351,142 @@ function HomeCentre() {
           <Acrylic color={TEAM_COLORS[team]} />
         </mesh>
       ))}
-      {/* Diagonal ink dividers separating the four goal triangles */}
+      {/* Diagonal ink dividers separating the four team picnic wedges */}
       {[Math.PI / 4, -Math.PI / 4].map((angle, idx) => (
         <mesh key={idx} position={[0, TILE_SURFACE_Y + 0.004, 0]} rotation-y={angle}>
           <boxGeometry args={[4.06, 0.008, 0.045]} />
-          <meshBasicMaterial color={INK} transparent opacity={0.32} />
+          <meshBasicMaterial color={INK} transparent opacity={0.22} />
         </mesh>
       ))}
-      {/* Central jewel medallion (stays well inside the ±0.85 goal pawn spots) */}
-      <group position={[0, TILE_SURFACE_Y + 0.02, 0]}>
-        <mesh receiveShadow castShadow>
-          <cylinderGeometry args={[0.34, 0.38, 0.04, 32]} />
-          <meshStandardMaterial color={INK} roughness={0.6} />
+
+      {/* Cozy pastel gingham picnic blanket in the middle */}
+      <group position={[0, TILE_SURFACE_Y + 0.007, 0]}>
+        <mesh rotation-x={-Math.PI / 2} receiveShadow>
+          <circleGeometry args={[0.88, 36]} />
+          <meshStandardMaterial map={blanketMap} roughness={0.85} />
         </mesh>
-        <mesh position-y={0.022} receiveShadow>
-          <cylinderGeometry args={[0.29, 0.31, 0.02, 32]} />
-          <meshStandardMaterial color="#fff8f0" roughness={0.4} />
+        <mesh position-y={0.001} rotation-x={-Math.PI / 2}>
+          <ringGeometry args={[0.85, 0.89, 36]} />
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.85} />
         </mesh>
-        <mesh geometry={crestStar} position-y={0.036} rotation-x={-Math.PI / 2}>
-          <meshStandardMaterial color={GOLD} emissive={GOLD} emissiveIntensity={1.6} toneMapped={false} />
+      </group>
+
+      {/* Central miniature bonfire */}
+      <group position={[0, TILE_SURFACE_Y + 0.01, 0]}>
+        {/* River stone ring */}
+        {STONE_ANGLES.map((angle, i) => (
+          <mesh
+            key={i}
+            position={[Math.cos(angle) * 0.2, 0.028, Math.sin(angle) * 0.2]}
+            scale={[1, 0.68, 0.9]}
+            receiveShadow
+          >
+            <sphereGeometry args={[0.048, 10, 8]} />
+            <meshStandardMaterial color={i % 2 === 0 ? '#a89f99' : '#8f8681'} roughness={0.85} />
+          </mesh>
+        ))}
+
+        {/* Crossed campfire logs */}
+        {[0, Math.PI / 2, Math.PI / 4, -Math.PI / 4].map((rot, idx) => (
+          <mesh
+            key={idx}
+            position={[0, 0.048 + (idx % 2) * 0.015, 0]}
+            rotation={[Math.PI / 2 - 0.22, rot, 0]}
+            castShadow
+          >
+            <capsuleGeometry args={[0.024, 0.24, 4, 8]} />
+            <meshStandardMaterial color={idx % 2 === 0 ? '#8c5a3c' : '#6f432a'} roughness={0.9} />
+          </mesh>
+        ))}
+
+        {/* Warm glowing ember bed */}
+        <mesh ref={emberRef} position={[0, 0.045, 0]} scale={[1, 0.45, 1]}>
+          <sphereGeometry args={[0.11, 12, 10]} />
+          <meshStandardMaterial color="#ff5a36" emissive="#ff6b2b" emissiveIntensity={1.45} toneMapped={false} />
         </mesh>
+
+        {/* Stylized flickering flames */}
+        <mesh ref={flameMainRef} position={[0, 0.16, 0]}>
+          <coneGeometry args={[0.082, 0.24, 10]} />
+          <meshStandardMaterial color="#ffd166" emissive="#ff9f1c" emissiveIntensity={1.7} toneMapped={false} />
+        </mesh>
+        <mesh ref={flameLeftRef} position={[-0.045, 0.13, 0.02]} rotation-z={0.25}>
+          <coneGeometry args={[0.05, 0.16, 8]} />
+          <meshStandardMaterial color="#ff6b6b" emissive="#ff5436" emissiveIntensity={1.55} toneMapped={false} />
+        </mesh>
+        <mesh ref={flameRightRef} position={[0.045, 0.13, -0.02]} rotation-z={-0.25}>
+          <coneGeometry args={[0.05, 0.16, 8]} />
+          <meshStandardMaterial color="#ff9f1c" emissive="#ff7b29" emissiveIntensity={1.55} toneMapped={false} />
+        </mesh>
+
+        <pointLight ref={fireLightRef} position={[0, 0.35, 0]} color="#ff9e44" intensity={0.55} distance={2.8} decay={2} />
+      </group>
+
+      {/* Picnic props placed neatly on the 4 diagonals so they never overlap pawn seats */}
+      {/* 1. Woven Picnic Basket (-X, -Z) */}
+      <group position={[-0.48, TILE_SURFACE_Y + 0.012, -0.48]} rotation-y={0.45}>
+        <mesh position-y={0.055} castShadow>
+          <boxGeometry args={[0.19, 0.11, 0.14]} />
+          <meshStandardMaterial color="#d49b57" roughness={0.8} />
+        </mesh>
+        <mesh position-y={0.112}>
+          <boxGeometry args={[0.205, 0.02, 0.155]} />
+          <meshStandardMaterial color="#b97f3d" roughness={0.75} />
+        </mesh>
+        <mesh position={[0, 0.115, 0]} rotation-z={Math.PI / 2}>
+          <torusGeometry args={[0.068, 0.01, 6, 14, Math.PI]} />
+          <meshStandardMaterial color="#8c5a3c" roughness={0.75} />
+        </mesh>
+      </group>
+
+      {/* 2. Cake & Berries Plate (+X, -Z) */}
+      <group position={[0.48, TILE_SURFACE_Y + 0.012, -0.48]}>
+        <mesh position-y={0.012} receiveShadow>
+          <cylinderGeometry args={[0.11, 0.095, 0.018, 16]} />
+          <meshStandardMaterial color="#fffaf5" roughness={0.3} />
+        </mesh>
+        <mesh position-y={0.042} castShadow>
+          <cylinderGeometry args={[0.068, 0.072, 0.048, 14]} />
+          <meshStandardMaterial color="#ffe5b4" roughness={0.65} />
+        </mesh>
+        <mesh position-y={0.068}>
+          <cylinderGeometry args={[0.07, 0.07, 0.014, 14]} />
+          <meshStandardMaterial color="#ff8fab" roughness={0.45} />
+        </mesh>
+        <mesh position={[0, 0.088, 0]}>
+          <sphereGeometry args={[0.02, 10, 8]} />
+          <meshStandardMaterial color="#e63946" roughness={0.35} />
+        </mesh>
+      </group>
+
+      {/* 3. Coffee Thermos & Cup (+X, +Z) */}
+      <group position={[0.48, TILE_SURFACE_Y + 0.012, 0.48]} rotation-y={-0.6}>
+        <mesh position={[-0.035, 0.065, 0]} castShadow>
+          <cylinderGeometry args={[0.036, 0.04, 0.13, 14]} />
+          <meshStandardMaterial color="#72efdd" roughness={0.35} />
+        </mesh>
+        <mesh position={[-0.035, 0.135, 0]}>
+          <cylinderGeometry args={[0.038, 0.038, 0.025, 14]} />
+          <meshStandardMaterial color="#ffffff" roughness={0.3} />
+        </mesh>
+        <mesh position={[0.045, 0.028, 0.02]} castShadow>
+          <cylinderGeometry args={[0.028, 0.022, 0.052, 12]} />
+          <meshStandardMaterial color="#ffd166" roughness={0.3} />
+        </mesh>
+      </group>
+
+      {/* 4. Cozy Snack Tray & Marshmallow Box (-X, +Z) */}
+      <group position={[-0.48, TILE_SURFACE_Y + 0.012, 0.48]} rotation-y={0.3}>
+        <mesh position-y={0.02} castShadow>
+          <boxGeometry args={[0.16, 0.035, 0.11]} />
+          <meshStandardMaterial color="#ffb5c5" roughness={0.5} />
+        </mesh>
+        {[-0.035, 0.035].map((ox, i) => (
+          <mesh key={i} position={[ox, 0.048, 0]} rotation-z={Math.PI / 2}>
+            <cylinderGeometry args={[0.02, 0.02, 0.035, 10]} />
+            <meshStandardMaterial color="#ffffff" roughness={0.6} />
+          </mesh>
+        ))}
       </group>
     </group>
   );

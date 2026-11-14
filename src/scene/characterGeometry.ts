@@ -23,7 +23,7 @@ let beretGeo: THREE.BufferGeometry | null = null;
 export function getAnimalTorsoGeometry(): THREE.BufferGeometry {
   if (torsoGeo) return torsoGeo;
   const pts: THREE.Vector2[] = [];
-  const steps = 28;
+  const steps = 18;
   for (let i = 0; i <= steps; i++) {
     const t = i / steps; // 0 = bottom hip, 1 = neck crown
     const y = 0.035 + t * 0.545;
@@ -33,7 +33,7 @@ export function getAnimalTorsoGeometry(): THREE.BufferGeometry {
     const r = Math.max(0.001, 0.225 * Math.pow(Math.max(cap, 0), 0.58) * pear);
     pts.push(new THREE.Vector2(r, y));
   }
-  const geo = new THREE.LatheGeometry(pts, 56);
+  const geo = new THREE.LatheGeometry(pts, 32);
   geo.computeVertexNormals();
   torsoGeo = geo;
   return geo;
@@ -44,7 +44,7 @@ export function getAnimalHeadGeometry(species: AnimalSpecies): THREE.BufferGeome
   const cached = headCache.get(species);
   if (cached) return cached;
 
-  const geo = new THREE.SphereGeometry(0.285, 64, 48);
+  const geo = new THREE.SphereGeometry(0.285, 32, 24);
   const pos = geo.getAttribute('position') as THREE.BufferAttribute;
 
   for (let i = 0; i < pos.count; i++) {
@@ -108,7 +108,7 @@ export function getAnimalHeadGeometry(species: AnimalSpecies): THREE.BufferGeome
 export function getArmGeometry(): THREE.BufferGeometry {
   if (armGeo) return armGeo;
   const pts: THREE.Vector2[] = [];
-  const steps = 22;
+  const steps = 14;
   for (let i = 0; i <= steps; i++) {
     const t = i / steps; // 0 = shoulder top, 1 = rounded paw tip
     const y = -t * 0.21;
@@ -117,7 +117,7 @@ export function getArmGeometry(): THREE.BufferGeometry {
     const r = Math.max(0.001, 0.058 * Math.pow(Math.max(swell, 0), 0.55) * pawBulb);
     pts.push(new THREE.Vector2(r, y));
   }
-  const geo = new THREE.LatheGeometry(pts, 32);
+  const geo = new THREE.LatheGeometry(pts, 18);
   geo.computeVertexNormals();
   armGeo = geo;
   return geo;
@@ -126,7 +126,7 @@ export function getArmGeometry(): THREE.BufferGeometry {
 /** Plump animal paw foot with flat grounded sole and subtle 3-toe front sculpt. */
 export function getFootGeometry(): THREE.BufferGeometry {
   if (footGeo) return footGeo;
-  const geo = new THREE.SphereGeometry(0.084, 36, 24);
+  const geo = new THREE.SphereGeometry(0.084, 20, 14);
   const pos = geo.getAttribute('position') as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) {
     let x = pos.getX(i) * 1.04;
@@ -151,7 +151,7 @@ export function getFootGeometry(): THREE.BufferGeometry {
 /** Smooth sculpted rounded-triangle kitty ear with soft forward spoon hollow. */
 export function getCatEarGeometry(): THREE.BufferGeometry {
   if (catEarGeo) return catEarGeo;
-  const geo = new THREE.SphereGeometry(0.11, 36, 28);
+  const geo = new THREE.SphereGeometry(0.11, 20, 14);
   const pos = geo.getAttribute('position') as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) {
     let x = pos.getX(i);
@@ -177,7 +177,7 @@ export function getCatEarGeometry(): THREE.BufferGeometry {
 export function getBunnyEarGeometry(): THREE.BufferGeometry {
   if (bunnyEarGeo) return bunnyEarGeo;
   const pts: THREE.Vector2[] = [];
-  const steps = 26;
+  const steps = 16;
   for (let i = 0; i <= steps; i++) {
     const t = i / steps; // 0 = base, 1 = rounded tip
     const y = t * 0.36;
@@ -186,7 +186,7 @@ export function getBunnyEarGeometry(): THREE.BufferGeometry {
     const r = Math.max(0.001, 0.066 * basePinch * (0.35 + 0.65 * tipCap));
     pts.push(new THREE.Vector2(r, y));
   }
-  const geo = new THREE.LatheGeometry(pts, 36);
+  const geo = new THREE.LatheGeometry(pts, 20);
   const pos = geo.getAttribute('position') as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i) * 1.05;
@@ -205,7 +205,7 @@ export function getBunnyEarGeometry(): THREE.BufferGeometry {
 /** Smooth slightly cupped round teddy bear ear. */
 export function getBearEarGeometry(): THREE.BufferGeometry {
   if (bearEarGeo) return bearEarGeo;
-  const geo = new THREE.SphereGeometry(0.112, 32, 24);
+  const geo = new THREE.SphereGeometry(0.112, 18, 14);
   const pos = geo.getAttribute('position') as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i) * 1.04;
@@ -230,7 +230,7 @@ export function getCatTailGeometry(): THREE.BufferGeometry {
     new THREE.Vector3(0.04, 0.3, -0.13),
     new THREE.Vector3(-0.02, 0.34, -0.08),
   ]);
-  catTailGeo = new THREE.TubeGeometry(curve, 28, 0.032, 16, false);
+  catTailGeo = new THREE.TubeGeometry(curve, 16, 0.032, 10, false);
   return catTailGeo;
 }
 
@@ -257,7 +257,7 @@ export function getScarfTieGeometry(): THREE.BufferGeometry {
     const r = Math.max(0.001, (0.026 + 0.022 * t) * Math.sin(Math.pow(t, 0.45) * Math.PI * 0.94));
     pts.push(new THREE.Vector2(r, y));
   }
-  const geo = new THREE.LatheGeometry(pts, 24);
+  const geo = new THREE.LatheGeometry(pts, 18);
   geo.scale(1.15, 1, 0.42);
   geo.computeVertexNormals();
   scarfTieGeo = geo;
@@ -275,7 +275,7 @@ export function getBeretGeometry(): THREE.BufferGeometry {
     new THREE.Vector2(0.105, 0.082),
     new THREE.Vector2(0.0, 0.088),
   ];
-  const geo = new THREE.LatheGeometry(pts, 40);
+  const geo = new THREE.LatheGeometry(pts, 24);
   geo.computeVertexNormals();
   beretGeo = geo;
   return geo;

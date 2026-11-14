@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type ComponentRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Environment, Lightformer, OrbitControls } from '@react-three/drei';
-import { Bloom, EffectComposer, SMAA } from '@react-three/postprocessing';
+import { Bloom, EffectComposer } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useGameStore } from '../engine/gameStore';
 import { CAPTURE_TWIRL_DURATION, SPAWN_DURATION } from './animationTiming';
@@ -116,17 +116,17 @@ export function LudoCanvas() {
       <Canvas
         flat
         shadows
-        dpr={[1, 2.5]}
+        dpr={[1, 1.5]}
         camera={{ fov: FOV, near: 0.5, far: 300 }}
-        gl={{ antialias: false }}
+        gl={{ antialias: true, powerPreference: 'high-performance' }}
         onCreated={({ scene, camera }) => {
           if (import.meta.env.DEV) Object.assign(window, { ludoScene: scene, ludoCamera: camera });
         }}
       >
         <color attach="background" args={[SCENE_BACKGROUND]} />
         <CameraRig />
-        {/* Offline procedural studio reflection rig for crisp 4K figurine clearcoat & fur sheen. */}
-        <Environment frames={1} resolution={256} environmentIntensity={0.44}>
+        {/* Offline procedural studio reflection rig for crisp figurine highlights. */}
+        <Environment frames={1} resolution={128} environmentIntensity={0.44}>
           <Lightformer form="rect" intensity={1.4} color="#fff7ec" position={[5, 10, 6]} scale={[12, 8, 1]} target={[0, 0, 0]} />
           <Lightformer form="circle" intensity={1.1} color="#e6d6ff" position={[-8, 6, -6]} scale={9} target={[0, 0, 0]} />
           <Lightformer form="ring" intensity={0.85} color="#ffd8e6" position={[0, 8, -9]} scale={8} target={[0, 0, 0]} />
@@ -140,10 +140,10 @@ export function LudoCanvas() {
           color="#fff6e6"
           intensity={2.1}
           position={[9, 17, 8]}
-          shadow-mapSize={[2048, 2048]}
-          shadow-bias={-0.0003}
+          shadow-mapSize={[1024, 1024]}
+          shadow-bias={-0.0004}
           shadow-normalBias={0.015}
-          shadow-radius={5}
+          shadow-radius={2.5}
         >
           <orthographicCamera attach="shadow-camera" args={[-9.8, 9.8, 9.8, -9.8, 1, 45]} />
         </directionalLight>
@@ -152,9 +152,8 @@ export function LudoCanvas() {
           <PawnActor key={pawn.id} pawn={pawn} />
         ))}
         <AnimeEffects />
-        <EffectComposer multisampling={0}>
-          <Bloom mipmapBlur luminanceThreshold={1.2} luminanceSmoothing={0.2} intensity={0.9} />
-          <SMAA />
+        <EffectComposer multisampling={4}>
+          <Bloom mipmapBlur luminanceThreshold={1.2} luminanceSmoothing={0.2} intensity={0.85} />
         </EffectComposer>
       </Canvas>
     </div>

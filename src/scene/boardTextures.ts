@@ -8,6 +8,7 @@ import { INK } from './effects/canvasShapes';
 
 let woodTexture: THREE.CanvasTexture | null = null;
 let tableMatTexture: THREE.CanvasTexture | null = null;
+let picnicBlanketTexture: THREE.CanvasTexture | null = null;
 const emblemTextures = new Map<TeamId, THREE.CanvasTexture>();
 
 /** Warm birch/maple wood grain texture for the board frame and base. */
@@ -152,4 +153,35 @@ export function getTeamEmblemTexture(team: TeamId): THREE.CanvasTexture {
   texture.colorSpace = THREE.SRGBColorSpace;
   emblemTextures.set(team, texture);
   return texture;
+}
+
+/** Cozy pastel gingham picnic blanket texture for the central Home campfire meadow. */
+export function getPicnicBlanketTexture(): THREE.CanvasTexture {
+  if (picnicBlanketTexture) return picnicBlanketTexture;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#fff8ee';
+  ctx.fillRect(0, 0, size, size);
+
+  const cell = size / 8;
+  ctx.fillStyle = 'rgba(255, 143, 171, 0.28)';
+  for (let i = 0; i < 8; i += 2) {
+    ctx.fillRect(i * cell, 0, cell, size);
+    ctx.fillRect(0, i * cell, size, cell);
+  }
+  ctx.fillStyle = 'rgba(255, 107, 138, 0.22)';
+  for (let x = 0; x < 8; x += 2) {
+    for (let y = 0; y < 8; y += 2) {
+      ctx.fillRect(x * cell, y * cell, cell, cell);
+    }
+  }
+
+  picnicBlanketTexture = new THREE.CanvasTexture(canvas);
+  picnicBlanketTexture.colorSpace = THREE.SRGBColorSpace;
+  picnicBlanketTexture.wrapS = THREE.RepeatWrapping;
+  picnicBlanketTexture.wrapT = THREE.RepeatWrapping;
+  return picnicBlanketTexture;
 }
