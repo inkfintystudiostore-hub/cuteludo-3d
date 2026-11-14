@@ -11,6 +11,7 @@ const VALID_EMOTES = new Set<string>(ROOM_EMOTE_IDS);
 
 export const ROOM_IDLE_TTL_MS = 6 * 60 * 60 * 1000;
 export const LOBBY_RECONNECT_GRACE_MS = 5 * 60 * 1000;
+export const LOBBY_RECLAIM_STALE_MS = 8 * 1000;
 
 export interface RoomRecord {
   code: string;
@@ -174,6 +175,22 @@ export function pruneExpiredLobbySeats(record: RoomRecord, now = Date.now()): Ro
   return { ...record, hostId, seats };
 }
 
+export function markDisconnectedIfMissingSockets(
+  record: RoomRecord,
+  activePlayerIds: Set<string>,
+  now = Date.now(),
+): RoomRecord {
+  let changed = false;
+  const seats = record.seats.map((s) => {
+    if (s.occupant === 'human' && s.playerId && s.connected && !activePlayerIds.has(s.playerId)) {
+      changed = true;
+      return { ...s, connected: false, disconnectedAt: s.disconnectedAt ?? now - LOBBY_RECLAIM_STALE_MS };
+    }
+    return s;
+  });
+  return changed ? { ...record, seats } : record;
+}
+
 export function joinRoom(record: RoomRecord, playerId: string, name?: string, now = Date.now()): RoomRecord {
   const pruned = pruneExpiredLobbySeats(record, now);
   const seats = pruned.seats.map((s) => ({ ...s }));
@@ -191,19 +208,46 @@ export function joinRoom(record: RoomRecord, playerId: string, name?: string, no
 
   let hostId = pruned.hostId;
   if (!pruned.started) {
-    const openIdx = seats.findIndex((s) => s.occupant === 'open');
-    if (openIdx >= 0) {
-      const open = seats[openIdx];
-      const takenCount = seats.filter((s) => s.occupant === 'human').length;
+    let targetIdx = seats.findIndex((s) => s.occupant === 'open');
+    if (targetIdx < 0) {
+      // Reclaim a stale disconnected lobby seat (e.g. player switched from WhatsApp WebView to Chrome).
+      const isStale = (s: SeatInfo) =>
+        s.occupant === 'human' && !s.connected && typeof s.disconnectedAt === 'number' && now - s.disconnectedAt >= LOBBY_RECLAIM_STALE_MS;
+      const staleGuestIdx = seats.findIndex((s) => isStale(s) && s.playerId !== hostId);
+      targetIdx = staleGuestIdx >= 0 ? staleGuestIdx : seats.findIndex((s) => isStale(s));
+      if (targetIdx >= 0 && seats[targetIdx].playerId === hostId) {
+        const remainingIdx = seats.findIndex((s, i) => i !== targetIdx && s.occupant === 'human' && s.playerId);
+        hostId = remainingIdx >= 0 ? seats[remainingIdx].playerId! : '';
+      }
+    }
+    if (targetIdx >= 0) {
+      const target = seats[targetIdx];
+      const takenCount = seats.filter((s, i) => i !== targetIdx && s.occupant === 'human').length;
       if (!hostId) hostId = playerId;
       const isHost = hostId === playerId;
-      open.occupant = 'human';
-      open.playerId = playerId;
-      open.playerName = cleanName;
-      open.connected = true;
-      delete open.disconnectedAt;
-      open.label = formatHumanLabel(open.team, takenCount, isHost, cleanName);
+      target.occupant = 'human';
+      target.playerId = playerId;
+      target.playerName = cleanName;
+      target.connected = true;
+      delete target.disconnectedAt;
+      target.label = formatHumanLabel(target.team, takenCount, isHost, cleanName);
     }
+    return { ...pruned, hostId, seats };
+  }
+
+  // If the host launched early and left AI bot seat(s), let an invited friend take over a bot seat live.
+  const botIdx = seats.findIndex((s) => s.occupant === 'bot');
+  if (botIdx >= 0) {
+    const botSeat = seats[botIdx];
+    const takenCount = seats.filter((s) => s.occupant === 'human').length;
+    if (!hostId) hostId = playerId;
+    const isHost = hostId === playerId;
+    botSeat.occupant = 'human';
+    botSeat.playerId = playerId;
+    botSeat.playerName = cleanName;
+    botSeat.connected = true;
+    delete botSeat.disconnectedAt;
+    botSeat.label = formatHumanLabel(botSeat.team, takenCount, isHost, cleanName);
   }
 
   return { ...pruned, hostId, seats };

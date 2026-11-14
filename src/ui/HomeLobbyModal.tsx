@@ -142,8 +142,12 @@ export function HomeLobbyModal() {
   const [joinError, setJoinError] = useState<string | null>(null);
   const [copiedKind, setCopiedKind] = useState<'code' | 'link' | null>(null);
   const autoJoinedUrlRef = useRef<string | null>(null);
+  const latestFormatRef = useRef(format);
+  const latestNameRef = useRef(playerName);
+  latestFormatRef.current = format;
+  latestNameRef.current = playerName;
 
-  // Auto-join ?room= invite links as soon as the lobby mounts on Home.
+  // Auto-join ?room= invite links once when landing on Home.
   useEffect(() => {
     if (screen !== 'home') return;
     const urlCode = readInitialRoomFromUrl();
@@ -153,8 +157,8 @@ export function HomeLobbyModal() {
     setJoinInput(formatRoomCode(urlCode));
     setJoinError(null);
     setCreateError(null);
-    connectMultiplayerRoom(urlCode, 'guest', format, playerName);
-  }, [screen, room, createdCode, format, playerName]);
+    connectMultiplayerRoom(urlCode, 'guest', latestFormatRef.current, latestNameRef.current);
+  }, [screen, room, createdCode]);
 
   // Keep selected format aligned with authoritative room mode from server.
   useEffect(() => {
@@ -493,7 +497,9 @@ export function HomeLobbyModal() {
                   : 'Reconnect to Start Match'
                 : joinedHumanCount >= activeTeams.length
                   ? `Start Game (All ${activeTeams.length} Joined!)`
-                  : `Start Game (${joinedHumanCount}/${activeTeams.length} Joined — Bots Fill Empty)`}
+                  : joinedHumanCount < 2
+                    ? `Start Solo vs Bot (Friend Can Still Join Later)`
+                    : `Start Game (${joinedHumanCount}/${activeTeams.length} Joined — Bots Fill Empty)`}
             </button>
           </div>
         ) : isGuestLobby && room ? (

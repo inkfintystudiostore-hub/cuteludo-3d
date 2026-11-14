@@ -112,16 +112,24 @@ export function savePlayerDisplayName(name: string): void {
   }
 }
 
+let cachedPlayerId: string | null = null;
+
 function getPlayerId(): string {
+  if (cachedPlayerId) return cachedPlayerId;
   const key = 'chibi-ludo-pid';
   try {
     const existing = sessionStorage.getItem(key);
-    if (existing) return existing;
+    if (existing) {
+      cachedPlayerId = existing;
+      return existing;
+    }
     const fresh = crypto.randomUUID();
     sessionStorage.setItem(key, fresh);
+    cachedPlayerId = fresh;
     return fresh;
   } catch {
-    return `tab-${Math.random().toString(36).slice(2, 10)}`;
+    cachedPlayerId = `tab-${Math.random().toString(36).slice(2, 10)}`;
+    return cachedPlayerId;
   }
 }
 
@@ -228,6 +236,10 @@ function openSocket(params: ActiveConnectionParams): void {
     roll: () => send({ type: 'roll' }),
     move: (pawnId) => send({ type: 'move', pawnId }),
     reset: () => send({ type: 'reset' }),
+    resync: () => {
+      const latestName = (activeParams?.playerName ?? loadPlayerDisplayName()).trim().slice(0, 18);
+      send({ type: 'join', playerId, name: latestName || undefined });
+    },
     emote: (emote: RoomEmoteId) => send({ type: 'emote', emote }),
     chat: (text: string) => send({ type: 'chat', text }),
     disconnect: disconnectMultiplayerRoom,
@@ -290,7 +302,8 @@ function openSocket(params: ActiveConnectionParams): void {
       }
       case 'error':
         lastServerError = data.message;
-        useGameStore.setState({ notice: data.message, roomAlert: data.message });
+        useGameStore.getState().setRoomAlert(data.message);
+        useGameStore.setState({ notice: data.message });
         break;
     }
   });
@@ -310,7 +323,9 @@ function openSocket(params: ActiveConnectionParams): void {
       activeParams = null;
       reconnectAttempt = 0;
       notifyParentRoomCode(null);
-      useGameStore.setState({ room: null, roomAlert: msg, notice: msg });
+      clearRoomFromBrowserUrl();
+      useGameStore.getState().setRoomAlert(msg);
+      useGameStore.setState({ room: null, notice: msg });
       return;
     }
 

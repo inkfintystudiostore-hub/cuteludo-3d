@@ -93,12 +93,10 @@ export function resolveEmbeddedParentUrl(): { baseUrl: string; origin: string } 
   }
 }
 
-/** Resolves the public base URL used for invite links (supports VITE_PUBLIC_APP_URL, iframe parent, & subpaths). */
+/** Resolves the public full-screen base URL used for shared room invite links. */
 export function resolveShareBaseUrl(): string {
   const configured = (import.meta.env?.VITE_PUBLIC_APP_URL as string | undefined)?.trim();
   if (configured) return configured.replace(/\/+$/, '');
-  const embeddedParent = resolveEmbeddedParentUrl();
-  if (embeddedParent) return embeddedParent.baseUrl;
   if (typeof window !== 'undefined') {
     const path = window.location.pathname && window.location.pathname !== '/'
       ? window.location.pathname.replace(/\/+$/, '')

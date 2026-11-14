@@ -16,6 +16,7 @@ import {
 } from '../engine/boardMap';
 import { canLocalPlayerAct, getLocalAnchorTeam, useGameStore } from '../engine/gameStore';
 import { pickSmartBotMove } from '../engine/ludoRules';
+import { retryMultiplayerConnection } from '../engine/multiplayerClient';
 import { buildRoomShareUrl, formatRoomCode, resolveShareBaseUrl } from '../engine/roomCode';
 import { DiceTray } from '../scene/Dice3D';
 import { CAPTURE_TWIRL_DURATION, SPAWN_DURATION } from '../scene/animationTiming';
@@ -103,7 +104,7 @@ function useAutomationAndShortcuts() {
       }, delay);
       return () => clearTimeout(timer);
     }
-  }, [screen, paused, simulation, vsAi, room, isAnimating, phase, currentTeam]);
+  }, [screen, paused, simulation, vsAi, room?.online, room?.isHost, isAnimating, phase, currentTeam]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -224,6 +225,17 @@ function TopLeftGameMenu() {
         >
           {copiedLink ? <CheckIcon className="size-3.5" /> : <LinkIcon className="size-3.5" />}
           <span>{copiedLink ? 'Copied!' : formatRoomCode(room.code)}</span>
+        </button>
+      )}
+
+      {room && !room.online && (
+        <button
+          type="button"
+          onClick={retryMultiplayerConnection}
+          title={room.statusNote ?? 'Reconnecting to live room'}
+          className={`flex min-h-9 shrink-0 items-center gap-1 rounded-xl bg-[#ffd875] px-2.5 text-[11px] font-bold whitespace-nowrap uppercase ${INK_BUTTON}`}
+        >
+          <span>{room.status === 'connecting' ? 'Reconnecting…' : 'Reconnect'}</span>
         </button>
       )}
 

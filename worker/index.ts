@@ -13,6 +13,7 @@ import {
   isRoomCodeOccupied,
   isRoomExpired,
   joinRoom,
+  markDisconnectedIfMissingSockets,
   snapshotForPlayer,
   type RoomRecord,
 } from './roomLogic';
@@ -208,14 +209,21 @@ export class LudoRoomDO extends DurableObject<Env> {
       this.room = createRoomRecord(code, mode);
     }
 
-    const updated = joinRoom(this.room, playerId, playerName);
+    const activePlayerIds = new Set<string>([playerId]);
+    for (const sock of this.ctx.getWebSockets()) {
+      if (sock.readyState !== WebSocket.OPEN) continue;
+      const meta = sock.deserializeAttachment() as SocketAttachment | null;
+      if (meta?.playerId) activePlayerIds.add(meta.playerId);
+    }
+    const sweptRoom = markDisconnectedIfMissingSockets(this.room, activePlayerIds);
+    const updated = joinRoom(sweptRoom, playerId, playerName);
     if (!updated.seats.some((s) => s.playerId === playerId)) {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       const message = updated.started
-        ? 'This match has already started. Ask your friend to host a new room.'
+        ? 'This match is already full and in progress. Ask your friend to host a new room.'
         : 'This room is already full.';
-      const reason = updated.started ? 'Match already started' : 'Room is full';
+      const reason = updated.started ? 'Match is full' : 'Room is full';
       server.accept();
       server.send(JSON.stringify({ type: 'error', message } satisfies ServerMessage));
       server.close(4003, reason);

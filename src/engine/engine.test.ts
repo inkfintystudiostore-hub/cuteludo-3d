@@ -26,8 +26,9 @@ import {
 } from './ludoRules';
 import { useGameStore } from './gameStore';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { buildRoomShareUrl, formatRoomCode, generateRoomCode, parseRoomCodeInput } from './roomCode';
+import { buildRoomShareUrl, formatRoomCode, generateRoomCode, parseRoomCodeInput, resolveShareBaseUrl } from './roomCode';
 import {
+  LOBBY_RECLAIM_STALE_MS,
   LOBBY_RECONNECT_GRACE_MS,
   ROOM_IDLE_TTL_MS,
   createRoomRecord,
@@ -37,6 +38,7 @@ import {
   isRoomExpired,
   joinRoom,
   leaveRoom,
+  markDisconnectedIfMissingSockets,
   pruneExpiredLobbySeats,
   snapshotForPlayer,
 } from '../../worker/roomLogic';
@@ -414,6 +416,21 @@ describe('roomCode helpers', () => {
     expect(parseRoomCodeInput('12345')).toBeNull();
     expect(parseRoomCodeInput('https://example.com/?room=bad')).toBeNull();
   });
+
+  it('shares direct full-screen game URLs even when embedded with parentUrl', () => {
+    vi.stubGlobal('window', {
+      location: {
+        origin: 'https://chibi-ludo-3d.inkfintystudio-store.workers.dev',
+        pathname: '/',
+        search: '?embed=1&parentUrl=https%3A%2F%2Finkfinitystudio.store%2Fgame-room',
+      },
+    });
+    try {
+      expect(resolveShareBaseUrl()).toBe('https://chibi-ludo-3d.inkfintystudio-store.workers.dev');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe('gameStore enhancements', () => {
@@ -489,6 +506,33 @@ describe('gameStore enhancements', () => {
     expect(useGameStore.getState().game.phase).toBe('MOVE');
     expect(useGameStore.getState().legalMoves).toHaveLength(4);
     expect(useGameStore.getState().pendingGame).toBeNull();
+  });
+
+  it('recovers via roll and event watchdogs if 3D animation callbacks fail to fire', () => {
+    vi.useFakeTimers();
+    const store = useGameStore.getState();
+    store.startMatch({ mode: '2P_COUPLES', vsAi: false, simulation: false, room: null });
+
+    // Stalled roll recovers cleanly without leaving isAnimating stuck true.
+    store.rollDice();
+    expect(useGameStore.getState().isAnimating).toBe(true);
+    expect(useGameStore.getState().activeRoll).not.toBeNull();
+    vi.advanceTimersByTime(2000);
+    expect(useGameStore.getState().activeRoll).toBeNull();
+
+    // If a pawn move animation never calls completeEvent, watchdog unlocks turns cleanly.
+    useGameStore.setState((s) => ({
+      game: { ...place(s.game, { 'PINK-0': 4 }), currentTeam: 'PINK', phase: 'MOVE', dice: 2 },
+      legalMoves: ['PINK-0', 'PINK-1'],
+      isAnimating: false,
+      activeRoll: null,
+    }));
+    useGameStore.getState().selectPawn('PINK-0');
+    expect(useGameStore.getState().isAnimating).toBe(true);
+    expect(useGameStore.getState().lastEvent).not.toBeNull();
+    vi.advanceTimersByTime(3500);
+    expect(useGameStore.getState().isAnimating).toBe(false);
+    expect(useGameStore.getState().lastEvent).toBeNull();
   });
 });
 
@@ -660,5 +704,38 @@ describe('multiplayer roomLogic', () => {
       vi.unstubAllGlobals();
     }
     expect(triggerHaptic('MY_TURN')).toBe(false);
+  });
+
+  it('reclaims stale disconnected 2P lobby seats and lets late friends take over bot seats after early start', () => {
+    const t0 = 1_700_000_000_000;
+    let room = createRoomRecord('777888999', '2P_COUPLES');
+    room = joinRoom(room, 'host-1', 'Aman', t0);
+    room = joinRoom(room, 'guest-old-webview', 'Priya', t0 + 1000);
+
+    // Friend switches from WhatsApp in-app browser to Chrome; old socket drops.
+    room = disconnectPlayer(room, 'guest-old-webview', t0 + 2000);
+    room = joinRoom(room, 'guest-chrome', 'Priya', t0 + 2000 + LOBBY_RECLAIM_STALE_MS + 100);
+    expect(snapshotForPlayer(room, 'guest-chrome').yourTeam).toBe('YELLOW');
+    expect(room.seats.filter((s) => s.occupant === 'human')).toHaveLength(2);
+
+    // Ghost connected seats missing live sockets are marked disconnected before joining.
+    room = markDisconnectedIfMissingSockets(room, new Set(['host-1']), t0 + 20000);
+    expect(room.seats.find((s) => s.playerId === 'guest-chrome')?.connected).toBe(false);
+
+    // Host starts early with 1/2 humans; second seat starts as AI bot -> late friend takes it over live.
+    let earlyRoom = createRoomRecord('111222333', '2P_COUPLES');
+    earlyRoom = joinRoom(earlyRoom, 'host-1', 'Aman', t0);
+    earlyRoom = handleRoomAction(earlyRoom, 'host-1', { type: 'start', mode: '2P_COUPLES' }).record;
+    expect(earlyRoom.started).toBe(true);
+    expect(earlyRoom.seats.find((s) => s.team === 'YELLOW')?.occupant).toBe('bot');
+
+    earlyRoom = joinRoom(earlyRoom, 'late-friend', 'Priya', t0 + 3000);
+    const lateSnap = snapshotForPlayer(earlyRoom, 'late-friend');
+    expect(lateSnap.yourTeam).toBe('YELLOW');
+    expect(lateSnap.seats.find((s) => s.team === 'YELLOW')?.occupant).toBe('human');
+
+    // Once all human seats are occupied, a 3rd player is still rejected from 2P.
+    const thirdTry = joinRoom(earlyRoom, 'stranger-3', 'Other', t0 + 4000);
+    expect(thirdTry.seats.some((s) => s.playerId === 'stranger-3')).toBe(false);
   });
 });

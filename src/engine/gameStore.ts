@@ -82,6 +82,7 @@ export interface RoomTransport {
   roll: () => void;
   move: (pawnId: string) => void;
   reset: () => void;
+  resync?: () => void;
   emote: (emote: RoomEmoteId) => void;
   chat: (text: string) => void;
   disconnect: () => void;
@@ -150,15 +151,61 @@ export interface GameStore {
 const NO_MOVE_DISPLAY_MS = 480;
 const NO_MOVE_SIMULATION_MS = 100;
 const AUTO_MOVE_DELAY_MS = 200;
+const ROLL_WATCHDOG_MS = 1800;
+const EVENT_WATCHDOG_MIN_MS = 2200;
+const SERVER_ACK_TIMEOUT_MS = 1200;
 const LOG_LIMIT = 40;
 let nextEventId = 1;
 let passTimer: ReturnType<typeof setTimeout> | undefined;
 let autoMoveTimer: ReturnType<typeof setTimeout> | undefined;
+let rollWatchdogTimer: ReturnType<typeof setTimeout> | undefined;
+let eventWatchdogTimer: ReturnType<typeof setTimeout> | undefined;
+let serverAckTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingServerAck = false;
+let hasPendingPass = false;
 let roomTransport: RoomTransport | null = null;
 
 function clearPendingTimers(): void {
   clearTimeout(passTimer);
   clearTimeout(autoMoveTimer);
+  clearTimeout(rollWatchdogTimer);
+  clearTimeout(eventWatchdogTimer);
+  clearTimeout(serverAckTimer);
+  passTimer = undefined;
+  autoMoveTimer = undefined;
+  rollWatchdogTimer = undefined;
+  eventWatchdogTimer = undefined;
+  serverAckTimer = undefined;
+  pendingServerAck = false;
+  hasPendingPass = false;
+}
+
+function clearServerAck(): void {
+  clearTimeout(serverAckTimer);
+  serverAckTimer = undefined;
+  pendingServerAck = false;
+}
+
+function scheduleRollWatchdog(rollId: number, get: () => GameStore): void {
+  clearTimeout(rollWatchdogTimer);
+  rollWatchdogTimer = setTimeout(() => {
+    const cur = get();
+    if (!cur.paused && cur.activeRoll?.id === rollId) {
+      cur.completeRoll(rollId);
+    }
+  }, ROLL_WATCHDOG_MS);
+}
+
+function scheduleEventWatchdog(ev: GameEvent, get: () => GameStore): void {
+  clearTimeout(eventWatchdogTimer);
+  const hopBudget = ev.type === 'HOP' ? ev.pathWaypoints.length * 190 + 1400 : EVENT_WATCHDOG_MIN_MS;
+  const timeoutMs = Math.max(EVENT_WATCHDOG_MIN_MS, hopBudget);
+  eventWatchdogTimer = setTimeout(() => {
+    const cur = get();
+    if (!cur.paused && cur.lastEvent?.id === ev.id) {
+      cur.completeEvent(ev.id);
+    }
+  }, timeoutMs);
 }
 
 export function registerRoomTransport(transport: RoomTransport | null): void {
@@ -337,9 +384,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   setSimulation: (on) => set({ simulation: on }),
   setVsAi: (on) => set({ vsAi: on }),
-  setPaused: (paused) => set({ paused }),
+  setPaused: (paused) => {
+    set({ paused });
+    if (!paused) {
+      const cur = get();
+      if (cur.activeRoll) scheduleRollWatchdog(cur.activeRoll.id, get);
+      if (cur.lastEvent) scheduleEventWatchdog(cur.lastEvent, get);
+    }
+  },
   setRoomPeers: (peers) => set((s) => (s.room ? { room: { ...s.room, peers } } : {})),
-  setRoomAlert: (roomAlert) => set({ roomAlert }),
+  setRoomAlert: (roomAlert) => {
+    clearServerAck();
+    set({ roomAlert });
+  },
   setChatOpen: (chatOpen) => set((s) => ({ chatOpen, unreadChat: chatOpen ? 0 : s.unreadChat })),
 
   pushChatMessage: (chat) =>
@@ -381,6 +438,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     ),
 
   syncRoomSnapshot: (snapshot) => {
+    clearServerAck();
     const connectedCount = snapshot.seats.filter((s) => s.occupant === 'human' && s.connected).length;
     const prev = get();
     const shouldEnterPlaying = snapshot.started && prev.screen !== 'playing';
@@ -399,30 +457,46 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     if (shouldEnterPlaying) {
       clearPendingTimers();
-      set({
-        ...freshState(snapshot.mode, snapshot.game),
-        screen: 'playing',
-        paused: false,
-        vsAi: false,
-        simulation: false,
-        room: nextRoom,
-        notice: turnNotice(snapshot.game.currentTeam),
-      });
-      return;
-    }
-
-    // Keep lobby mode & in-match board aligned cleanly when not mid-animation.
-    if (!prev.isAnimating && (prev.screen === 'playing' || !snapshot.started)) {
       const legal =
         snapshot.game.phase === 'MOVE' && snapshot.game.dice
           ? applyRoll({ ...snapshot.game, phase: 'ROLL' }, snapshot.game.dice).legalMoves
           : [];
       set({
+        ...freshState(snapshot.mode, snapshot.game),
+        legalMoves: legal,
+        screen: 'playing',
+        paused: false,
+        vsAi: false,
+        simulation: false,
+        room: nextRoom,
+        notice: snapshot.game.phase === 'MOVE' ? 'Pick a glowing pawn.' : turnNotice(snapshot.game.currentTeam),
+      });
+      return;
+    }
+
+    // Keep lobby mode & in-match board aligned cleanly; also recover if no animation is actually active.
+    const canSyncNow = !prev.isAnimating || (!prev.activeRoll && !prev.lastEvent && !hasPendingPass);
+    if (canSyncNow && (prev.screen === 'playing' || !snapshot.started)) {
+      const legal =
+        snapshot.game.phase === 'MOVE' && snapshot.game.dice
+          ? applyRoll({ ...snapshot.game, phase: 'ROLL' }, snapshot.game.dice).legalMoves
+          : [];
+      const turnOrPhaseChanged =
+        prev.game.currentTeam !== snapshot.game.currentTeam || prev.game.phase !== snapshot.game.phase;
+      const syncedNotice = !snapshot.started
+        ? turnNotice(snapshot.game.currentTeam)
+        : turnOrPhaseChanged
+          ? snapshot.game.phase === 'MOVE'
+            ? 'Pick a glowing pawn.'
+            : turnNotice(snapshot.game.currentTeam)
+          : prev.notice;
+      set({
         room: nextRoom,
         game: snapshot.game,
         legalMoves: legal,
+        isAnimating: false,
         roomAlert: null,
-        notice: snapshot.started ? prev.notice : turnNotice(snapshot.game.currentTeam),
+        notice: syncedNotice,
       });
       return;
     }
@@ -431,20 +505,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   playRemoteRoll: (value) => {
+    clearServerAck();
     const { game } = get();
-    if (game.phase !== 'ROLL') return;
+    if (game.phase !== 'ROLL') {
+      roomTransport?.resync?.();
+      return;
+    }
+    const id = nextEventId++;
     set({
-      activeRoll: { id: nextEventId++, value },
+      activeRoll: { id, value },
       isAnimating: true,
       legalMoves: [],
       hoveredPawnId: null,
       notice: 'Rolling…',
     });
+    if (!get().paused) scheduleRollWatchdog(id, get);
   },
 
   playRemoteMove: (pawnId) => {
+    clearServerAck();
     const patch = buildMovePatch(get(), pawnId);
-    if (patch) set(patch);
+    if (!patch) {
+      roomTransport?.resync?.();
+      return;
+    }
+    set(patch);
+    if (!get().paused) scheduleEventWatchdog(patch.lastEvent, get);
   },
 
   syncRemoteReset: (mode) => {
@@ -531,23 +617,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (room?.online && roomTransport) {
       const seat = room.seats.find((s) => s.team === game.currentTeam);
       const allowed = room.myTeam === game.currentTeam || (room.isHost && seat?.occupant === 'bot');
-      if (!allowed) return;
+      if (!allowed || pendingServerAck) return;
+      pendingServerAck = true;
+      clearTimeout(serverAckTimer);
+      serverAckTimer = setTimeout(() => {
+        pendingServerAck = false;
+      }, SERVER_ACK_TIMEOUT_MS);
       roomTransport.roll();
       return;
     }
 
+    const id = nextEventId++;
     set({
-      activeRoll: { id: nextEventId++, value: rollSmartDie(game) },
+      activeRoll: { id, value: rollSmartDie(game) },
       isAnimating: true,
       legalMoves: [],
       hoveredPawnId: null,
       notice: 'Rolling…',
     });
+    scheduleRollWatchdog(id, get);
   },
 
   completeRoll: (rollId) => {
     const { game, activeRoll, stats, simulation, vsAi, room, screen } = get();
     if (!activeRoll || activeRoll.id !== rollId) return;
+    clearTimeout(rollWatchdogTimer);
+    rollWatchdogTimer = undefined;
     const value = activeRoll.value;
     const result = applyRoll(game, value);
     const roller = TEAM_LABELS[game.currentTeam];
@@ -611,7 +706,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
       notice,
       log: appendLog(get().log, `${roller} rolled ${value}: ${result.outcome === 'THREE_SIXES' ? 'third six, turn lost' : 'no move'}`),
     });
+    hasPendingPass = true;
+    clearTimeout(passTimer);
     passTimer = setTimeout(() => {
+      hasPendingPass = false;
+      passTimer = undefined;
       set({ game: result.state, isAnimating: false, notice: turnNotice(result.state.currentTeam) });
     }, get().simulation ? NO_MOVE_SIMULATION_MS : NO_MOVE_DISPLAY_MS);
   },
@@ -625,20 +724,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (room?.online && roomTransport) {
       const seat = room.seats.find((s) => s.team === game.currentTeam);
       const allowed = room.myTeam === game.currentTeam || (room.isHost && seat?.occupant === 'bot');
-      if (!allowed) return;
+      if (!allowed || pendingServerAck) return;
+      pendingServerAck = true;
+      clearTimeout(serverAckTimer);
+      serverAckTimer = setTimeout(() => {
+        pendingServerAck = false;
+      }, SERVER_ACK_TIMEOUT_MS);
       roomTransport.move(pawnId);
       return;
     }
 
     const patch = buildMovePatch(state, pawnId);
-    if (patch) set(patch);
+    if (patch) {
+      set(patch);
+      scheduleEventWatchdog(patch.lastEvent, get);
+    }
   },
 
   completeEvent: (eventId) => {
     const { lastEvent, eventQueue, pendingGame } = get();
     if (!lastEvent || lastEvent.id !== eventId) return;
+    clearTimeout(eventWatchdogTimer);
+    eventWatchdogTimer = undefined;
     if (eventQueue.length > 0) {
-      set({ lastEvent: eventQueue[0], eventQueue: eventQueue.slice(1) });
+      const next = eventQueue[0];
+      set({ lastEvent: next, eventQueue: eventQueue.slice(1) });
+      if (!get().paused) scheduleEventWatchdog(next, get);
       return;
     }
     set({ game: pendingGame ?? get().game, pendingGame: null, lastEvent: null, isAnimating: false });

@@ -3,7 +3,7 @@
  * the board rather than on it, and clicking (or pressing Enter on) the tray rolls it. A roll
  * tosses the die up, tumbles it, and lands it with the rolled face pointing straight up.
  */
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import gsap from 'gsap';
 import * as THREE from 'three';
@@ -231,6 +231,11 @@ export function DiceTray({ className = '' }: { className?: string }) {
 
   const clickable = canRoll;
   const status = rolling ? 'rolling' : dice ? `showing ${dice}` : 'not rolled yet';
+  const [canvasKey, setCanvasKey] = useState(0);
+  const cleanupCanvasRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => cleanupCanvasRef.current?.(), []);
+
   return (
     <button
       type="button"
@@ -246,7 +251,28 @@ export function DiceTray({ className = '' }: { className?: string }) {
       } ${className}`}
       style={{ backgroundColor: TEAM_COLORS[team] }}
     >
-      <Canvas flat dpr={[1, 1.5]} gl={{ powerPreference: 'high-performance' }} camera={{ position: [0, 3.3, 2.5], fov: 34 }} onCreated={({ camera }) => camera.lookAt(0, 0.25, 0)}>
+      <Canvas
+        key={canvasKey}
+        flat
+        dpr={[1, 1.5]}
+        gl={{ powerPreference: 'high-performance', failIfMajorPerformanceCaveat: false }}
+        camera={{ position: [0, 3.3, 2.5], fov: 34 }}
+        onCreated={({ gl, camera }) => {
+          cleanupCanvasRef.current?.();
+          const canvasEl = gl.domElement;
+          const onLost = (e: Event) => {
+            e.preventDefault();
+          };
+          const onRestored = () => setCanvasKey((k) => k + 1);
+          canvasEl.addEventListener('webglcontextlost', onLost);
+          canvasEl.addEventListener('webglcontextrestored', onRestored);
+          cleanupCanvasRef.current = () => {
+            canvasEl.removeEventListener('webglcontextlost', onLost);
+            canvasEl.removeEventListener('webglcontextrestored', onRestored);
+          };
+          camera.lookAt(0, 0.25, 0);
+        }}
+      >
         <hemisphereLight args={['#ffffff', '#f6d6bd', 1.1]} />
         <directionalLight color="#fff6e6" intensity={2.1} position={[2, 5, 3]} />
         <Die />

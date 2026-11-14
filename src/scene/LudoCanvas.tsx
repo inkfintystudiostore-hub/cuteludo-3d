@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ComponentRef } from 'react';
+import { Component, useEffect, useLayoutEffect, useRef, useState, type ComponentRef, type ReactNode } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { Environment, Lightformer, OrbitControls } from '@react-three/drei';
 import { Bloom, EffectComposer } from '@react-three/postprocessing';
@@ -8,6 +8,19 @@ import { getLocalAnchorTeam, useGameStore } from '../engine/gameStore';
 import { BoardMesh } from './BoardMesh';
 import { AnimeEffects } from './effects/AnimeEffects';
 import { PawnActor } from './PawnActor';
+
+class PostProcessingErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) return null;
+    return this.props.children;
+  }
+}
 
 /** Must match the page background so the canvas edge is invisible. */
 const SCENE_BACKGROUND = '#ffeef4';
@@ -30,13 +43,15 @@ function CameraRig() {
   const cameraResetTick = useGameStore((s) => s.cameraResetTick);
 
   useLayoutEffect(() => {
+    if (width < 2 || height < 2) return;
     const aspect = width / height;
     const isNarrow = width < 640 || aspect < 0.95;
     const isCompact = isNarrow || height < 540;
-    const fov = isNarrow ? 38.5 : FOV;
+    const fov = isNarrow ? 39 : FOV;
     const elevation = isNarrow ? THREE.MathUtils.degToRad(52) : ELEVATION;
-    const radius = isNarrow ? 7.82 : isCompact ? 8.1 : BOARD_RADIUS;
-    const headroom = isCompact ? 0.65 : HEADROOM;
+    // WoodBase outer edge spans 8.5 units; keep >= 8.6 radius so corner yards never clip.
+    const radius = isNarrow ? 8.6 : BOARD_RADIUS;
+    const headroom = isCompact ? 0.55 : HEADROOM;
     const tanHalf = Math.tan(THREE.MathUtils.degToRad(fov / 2));
     const nearEdge = radius * Math.cos(elevation);
     const fitHeight = (radius * Math.sin(elevation) + headroom) / tanHalf + nearEdge;
@@ -74,17 +89,37 @@ export function LudoCanvas() {
   const triggerCameraReset = useGameStore((s) => s.triggerCameraReset);
   const anchorTeam = useGameStore((s) => getLocalAnchorTeam(s));
   const boardYaw = getBoardYawForTeam(anchorTeam);
+  const [canvasKey, setCanvasKey] = useState(0);
+  const cleanupCanvasRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => cleanupCanvasRef.current?.(), []);
 
   return (
     <div className="h-full w-full" onDoubleClick={triggerCameraReset}>
       {/* `flat`: the composer owns the output, and un-tone-mapped colours keep the pastels true. */}
       <Canvas
+        key={canvasKey}
         flat
         shadows
         dpr={[1, 1.5]}
         camera={{ fov: FOV, near: 0.5, far: 300 }}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
-        onCreated={({ scene, camera }) => {
+        gl={{ antialias: true, powerPreference: 'high-performance', failIfMajorPerformanceCaveat: false }}
+        onCreated={({ gl, scene, camera }) => {
+          cleanupCanvasRef.current?.();
+          const canvasEl = gl.domElement;
+          const onLost = (e: Event) => {
+            e.preventDefault();
+          };
+          const onRestored = () => {
+            setCanvasKey((k) => k + 1);
+            triggerCameraReset();
+          };
+          canvasEl.addEventListener('webglcontextlost', onLost);
+          canvasEl.addEventListener('webglcontextrestored', onRestored);
+          cleanupCanvasRef.current = () => {
+            canvasEl.removeEventListener('webglcontextlost', onLost);
+            canvasEl.removeEventListener('webglcontextrestored', onRestored);
+          };
           if (import.meta.env.DEV) Object.assign(window, { ludoScene: scene, ludoCamera: camera });
         }}
       >
@@ -119,9 +154,11 @@ export function LudoCanvas() {
           ))}
           <AnimeEffects />
         </group>
-        <EffectComposer multisampling={4}>
-          <Bloom mipmapBlur luminanceThreshold={1.2} luminanceSmoothing={0.2} intensity={0.85} />
-        </EffectComposer>
+        <PostProcessingErrorBoundary>
+          <EffectComposer multisampling={0}>
+            <Bloom mipmapBlur luminanceThreshold={1.2} luminanceSmoothing={0.2} intensity={0.85} />
+          </EffectComposer>
+        </PostProcessingErrorBoundary>
       </Canvas>
     </div>
   );

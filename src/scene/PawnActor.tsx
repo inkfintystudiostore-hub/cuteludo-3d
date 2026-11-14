@@ -88,6 +88,8 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
   const selectPawn = useGameStore((s) => s.selectPawn);
   const setHoveredPawn = useGameStore((s) => s.setHoveredPawn);
   const completeEvent = useGameStore((s) => s.completeEvent);
+  const pointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
+  const lastSelectAtRef = useRef(0);
 
   const isHome = pawn.progress === HOME_PROGRESS;
   const picnicActivity = PICNIC_ACTIVITIES[pawn.slot % PICNIC_ACTIVITIES.length];
@@ -344,9 +346,12 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
     }
   });
 
-  const handleClick = (event: ThreeEvent<MouseEvent>) => {
+  const triggerSelectPawn = (event: ThreeEvent<MouseEvent | PointerEvent>) => {
     if (!movable) return;
     event.stopPropagation();
+    const now = performance.now();
+    if (now - lastSelectAtRef.current < 150) return;
+    lastSelectAtRef.current = now;
     document.body.style.cursor = '';
     setHoveredPawn(null);
     selectPawn(pawn.id);
@@ -355,7 +360,19 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
   return (
     <group
       ref={rootRef}
-      onClick={handleClick}
+      onPointerDown={(event) => {
+        if (!movable) return;
+        pointerDownPosRef.current = { x: event.clientX, y: event.clientY };
+      }}
+      onPointerUp={(event) => {
+        const down = pointerDownPosRef.current;
+        pointerDownPosRef.current = null;
+        if (!movable || !down) return;
+        if (Math.hypot(event.clientX - down.x, event.clientY - down.y) <= 14) {
+          triggerSelectPawn(event);
+        }
+      }}
+      onClick={triggerSelectPawn}
       onPointerOver={(event) => {
         if (!movable) return;
         event.stopPropagation();
@@ -381,9 +398,9 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
           toneMapped={false}
         />
       </mesh>
-      {/* Generous invisible hit area so shrunken pawns stay easy to tap. */}
-      <mesh position-y={0.8}>
-        <cylinderGeometry args={[0.5, 0.5, 1.6, 12]} />
+      {/* Generous invisible hit area so shrunken & mobile-tapped pawns stay effortless to select. */}
+      <mesh position-y={0.85}>
+        <cylinderGeometry args={[movable ? 0.62 : 0.5, movable ? 0.62 : 0.5, 1.75, 12]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
       <group ref={tiltRef}>
