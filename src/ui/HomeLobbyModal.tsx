@@ -3,7 +3,7 @@
  * Lets players pick Solo/AI/Pass & Play modes or create/join a live 9-digit Friend Room
  * powered by Cloudflare Durable Objects WebSockets (with graceful offline local fallback).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TEAM_COLORS, TEAM_LABELS, type TeamId } from '../engine/boardMap';
 import { useGameStore } from '../engine/gameStore';
 import { MODE_TEAMS, type GameMode } from '../engine/ludoRules';
@@ -14,6 +14,7 @@ import {
   loadPlayerDisplayName,
   notifyParentRoomCode,
   reserveUniqueRoomCode,
+  retryMultiplayerConnection,
   savePlayerDisplayName,
   sendRoomMode,
   sendRoomName,
@@ -47,6 +48,18 @@ const INK_BTN =
 function readInitialRoomFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
   return parseRoomCodeInput(window.location.search);
+}
+
+function clearRoomFromBrowserUrl(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('room')) return;
+    url.searchParams.delete('room');
+    window.history.replaceState(null, '', url.toString());
+  } catch {
+    // Ignore history API restrictions in sandboxed frames.
+  }
 }
 
 function RoomSeatsRoster({
@@ -111,6 +124,7 @@ function RoomSeatsRoster({
                 <span>{TEAM_LABELS[seat.team]}</span>
                 {isMe && <span className="rounded bg-[#80ed99] px-1 text-ink">YOU</span>}
                 {joined && seat.connected && <span className="size-1.5 rounded-full bg-[#2b9348]" title="Online" />}
+                {joined && !seat.connected && <span className="rounded bg-[#ffd875] px-1 text-[8px] text-ink">Reconnecting</span>}
               </div>
             </div>
           </button>
@@ -132,6 +146,7 @@ export function HomeLobbyModal() {
 
   const [createdCode, setCreatedCode] = useState<string | null>(null);
   const [reservingRoom, setReservingRoom] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [playerName, setPlayerName] = useState<string>(() => loadPlayerDisplayName());
   const [joinInput, setJoinInput] = useState<string>(() => {
     const urlCode = readInitialRoomFromUrl();
@@ -139,14 +154,28 @@ export function HomeLobbyModal() {
   });
   const [joinError, setJoinError] = useState<string | null>(null);
   const [copiedKind, setCopiedKind] = useState<'code' | 'link' | null>(null);
+  const autoJoinedUrlRef = useRef<string | null>(null);
 
-  // Sync URL ?room= auto-join if present or clear disconnected local state when returning Home.
+  // Auto-join ?room= invite links as soon as the lobby mounts on Home.
   useEffect(() => {
     if (screen !== 'home') return;
-    if (room && room.online) {
-      setFormat(useGameStore.getState().game.mode);
+    const urlCode = readInitialRoomFromUrl();
+    if (!urlCode || room || createdCode || autoJoinedUrlRef.current === urlCode) return;
+    autoJoinedUrlRef.current = urlCode;
+    setTab('friends');
+    setJoinInput(formatRoomCode(urlCode));
+    setJoinError(null);
+    setCreateError(null);
+    connectMultiplayerRoom(urlCode, 'guest', format, playerName);
+  }, [screen, room, createdCode, format, playerName]);
+
+  // Keep selected format aligned with authoritative room mode from server.
+  useEffect(() => {
+    if (screen !== 'home') return;
+    if (room?.online && room.mode) {
+      setFormat(room.mode);
     }
-  }, [screen, room]);
+  }, [screen, room?.online, room?.mode]);
 
   // Live-sync name edits while waiting inside an active private room.
   useEffect(() => {
@@ -173,6 +202,7 @@ export function HomeLobbyModal() {
   };
 
   const handleSelectFormat = (nextFormat: GameMode) => {
+    if (tab === 'friends' && room && !room.isHost) return;
     setFormat(nextFormat);
     if (room?.online && room.isHost) {
       sendRoomMode(nextFormat);
@@ -181,6 +211,8 @@ export function HomeLobbyModal() {
 
   const handleStartLocal = () => {
     disconnectMultiplayerRoom();
+    clearRoomFromBrowserUrl();
+    setCreatedCode(null);
     startMatch({
       mode: format,
       vsAi: localStyle === 'ai',
@@ -193,44 +225,45 @@ export function HomeLobbyModal() {
     if (reservingRoom) return;
     setReservingRoom(true);
     setJoinError(null);
+    setCreateError(null);
+    useGameStore.getState().setRoomAlert(null);
     try {
-      const code = await reserveUniqueRoomCode(format);
-      setCreatedCode(code);
-      connectMultiplayerRoom(code, 'host', format, playerName);
+      const reserved = await reserveUniqueRoomCode(format);
+      if (!reserved.ok) {
+        setCreateError(reserved.error);
+        return;
+      }
+      setCreatedCode(reserved.code);
+      connectMultiplayerRoom(reserved.code, 'host', format, playerName);
     } finally {
       setReservingRoom(false);
     }
   };
 
   const handleStartHostedRoom = () => {
-    if (!liveCode) return;
-    if (room?.online) {
-      sendRoomStart(format);
-      return;
-    }
-    startMatch({
-      mode: format,
-      vsAi: false,
-      simulation: false,
-      room: { code: liveCode, role: 'host', peers: 1 },
-    });
+    if (!liveCode || !room?.online) return;
+    sendRoomStart(format);
   };
 
-  const handleJoinRoom = () => {
+  const handleJoinRoom = (e?: React.FormEvent) => {
+    e?.preventDefault();
     const parsed = parseRoomCodeInput(joinInput);
     if (!parsed) {
       setJoinError('Enter a valid 9-digit room code or share link.');
       return;
     }
     setJoinError(null);
+    setCreateError(null);
+    useGameStore.getState().setRoomAlert(null);
     connectMultiplayerRoom(parsed, 'guest', format, playerName);
   };
 
   const handleLeaveLobbyRoom = () => {
     disconnectMultiplayerRoom();
     notifyParentRoomCode(null);
+    clearRoomFromBrowserUrl();
     setCreatedCode(null);
-    useGameStore.setState({ room: null });
+    useGameStore.setState({ room: null, roomAlert: null });
   };
 
   const handlePaste = async () => {
@@ -247,8 +280,7 @@ export function HomeLobbyModal() {
 
   const activeTeams: TeamId[] = [...MODE_TEAMS[format]];
   const isHostLobby = Boolean(!room?.started && (createdCode || room?.role === 'host'));
-  const connectedGuestWaiting = room?.role === 'guest' && room.online && !room.started;
-  const offlineFallbackReady = room?.role === 'guest' && room.status === 'offline';
+  const isGuestLobby = Boolean(!room?.started && room?.role === 'guest');
   const joinedHumanCount = room?.seats?.length
     ? room.seats.filter((s) => s.occupant === 'human').length
     : 1;
@@ -317,20 +349,24 @@ export function HomeLobbyModal() {
         <section aria-label="Board player format" className="flex flex-col gap-1">
           <span className="text-[11px] font-bold tracking-wider text-ink/70 uppercase">Players &amp; Teams</span>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {FORMATS.map(({ id, label, hint }) => (
-              <button
-                key={id}
-                type="button"
-                aria-pressed={format === id}
-                onClick={() => handleSelectFormat(id)}
-                className={`flex flex-col items-center rounded-2xl px-2 py-1.5 text-center ${INK_BTN} ${
-                  format === id ? 'bg-[#ffe0ea]' : 'bg-white'
-                }`}
-              >
-                <span className="text-xs font-bold sm:text-sm">{label}</span>
-                <span className="text-[10px] font-semibold text-ink/65">{hint}</span>
-              </button>
-            ))}
+            {FORMATS.map(({ id, label, hint }) => {
+              const lockedByHost = tab === 'friends' && isGuestLobby;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  disabled={lockedByHost}
+                  aria-pressed={format === id}
+                  onClick={() => handleSelectFormat(id)}
+                  className={`flex flex-col items-center rounded-2xl px-2 py-1.5 text-center disabled:cursor-default disabled:opacity-75 ${INK_BTN} ${
+                    format === id ? 'bg-[#ffe0ea]' : 'bg-white'
+                  }`}
+                >
+                  <span className="text-xs font-bold sm:text-sm">{label}</span>
+                  <span className="text-[10px] font-semibold text-ink/65">{hint}</span>
+                </button>
+              );
+            })}
           </div>
         </section>
 
@@ -381,19 +417,30 @@ export function HomeLobbyModal() {
                       ? `Live • ${joinedHumanCount}/${activeTeams.length} Joined`
                       : room?.status === 'connecting'
                         ? 'Connecting…'
-                        : 'Local Preview'}
+                        : 'Disconnected'}
                   </span>
                 </div>
                 <div className="font-mono text-xl font-bold tracking-wider tabular-nums">{formatRoomCode(liveCode)}</div>
               </div>
 
-              <button
-                type="button"
-                onClick={handleLeaveLobbyRoom}
-                className={`rounded-xl bg-[#ffe0ea] px-3 py-1.5 text-xs font-bold uppercase ${INK_BTN}`}
-              >
-                Close Room
-              </button>
+              <div className="flex items-center gap-1.5">
+                {room?.status === 'offline' && (
+                  <button
+                    type="button"
+                    onClick={retryMultiplayerConnection}
+                    className={`rounded-xl bg-[#ffd875] px-3 py-1.5 text-xs font-bold uppercase ${INK_BTN}`}
+                  >
+                    Retry
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleLeaveLobbyRoom}
+                  className={`rounded-xl bg-[#ffe0ea] px-3 py-1.5 text-xs font-bold uppercase ${INK_BTN}`}
+                >
+                  Close Room
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
@@ -449,23 +496,43 @@ export function HomeLobbyModal() {
 
             <button
               type="button"
+              disabled={!room?.online}
               onClick={handleStartHostedRoom}
-              className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl px-4 text-sm font-bold tracking-wide uppercase sm:text-base ${INK_BTN} ${
+              className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl px-4 text-sm font-bold tracking-wide uppercase disabled:cursor-not-allowed disabled:opacity-60 sm:text-base ${INK_BTN} ${
                 joinedHumanCount >= activeTeams.length ? 'bg-[#80ed99]' : 'bg-[#ff8fab]'
               }`}
             >
               <PlayIcon className="size-4" />
-              {joinedHumanCount >= activeTeams.length
-                ? `Start Game (All ${activeTeams.length} Joined!)`
-                : `Start Game (${joinedHumanCount}/${activeTeams.length} Joined — Bots Fill Empty)`}
+              {!room?.online
+                ? room?.status === 'connecting'
+                  ? 'Connecting to Live Server…'
+                  : 'Reconnect to Start Match'
+                : joinedHumanCount >= activeTeams.length
+                  ? `Start Game (All ${activeTeams.length} Joined!)`
+                  : `Start Game (${joinedHumanCount}/${activeTeams.length} Joined — Bots Fill Empty)`}
             </button>
           </div>
-        ) : connectedGuestWaiting ? (
-          /* Joined Friend Waiting View */
+        ) : isGuestLobby && room ? (
+          /* Guest Waiting / Joining View */
           <div className="flex flex-col gap-2.5 rounded-2xl border-[3px] border-ink bg-white p-3.5 shadow-ink-sm">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <span className="text-[10px] font-bold tracking-wider text-ink/65 uppercase">Connected to Live Room</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-bold tracking-wider text-ink/65 uppercase">
+                    {room.online ? 'Connected to Live Room' : room.status === 'connecting' ? 'Joining Live Room' : 'Connection Lost'}
+                  </span>
+                  <span
+                    className={`rounded-full border border-ink px-2 py-0.5 text-[10px] font-bold uppercase ${
+                      room.online ? 'bg-[#80ed99]' : room.status === 'connecting' ? 'bg-[#ffd875]' : 'bg-[#ffe0ea]'
+                    }`}
+                  >
+                    {room.online
+                      ? `Live • ${joinedHumanCount}/${activeTeams.length} Joined`
+                      : room.status === 'connecting'
+                        ? 'Connecting…'
+                        : 'Offline'}
+                  </span>
+                </div>
                 <div className="font-mono text-lg font-bold tracking-wider">{formatRoomCode(room.code)}</div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -495,29 +562,55 @@ export function HomeLobbyModal() {
               />
             </div>
 
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-bold tracking-wider text-ink/70 uppercase">
-                Tap any open color to switch
-              </span>
-              <RoomSeatsRoster seats={room.seats} activeTeams={activeTeams} myTeam={room.myTeam} onSelectTeam={sendRoomSelectTeam} />
-              {roomAlert && (
-                <p role="alert" className="text-[11px] font-bold text-[#d90429]">
-                  {roomAlert}
-                </p>
-              )}
-            </div>
+            {room.seats.length > 0 ? (
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] font-bold tracking-wider text-ink/70 uppercase">
+                  Tap any open color to switch
+                </span>
+                <RoomSeatsRoster
+                  seats={room.seats}
+                  activeTeams={activeTeams}
+                  myTeam={room.myTeam}
+                  onSelectTeam={room.online ? sendRoomSelectTeam : undefined}
+                />
+                {roomAlert && (
+                  <p role="alert" className="text-[11px] font-bold text-[#d90429]">
+                    {roomAlert}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="rounded-xl border-2 border-dashed border-ink/30 bg-[#fff8f5] px-3 py-2.5 text-center text-xs font-bold text-ink/75">
+                {room.statusNote ?? 'Connecting you directly to your friend’s room…'}
+              </p>
+            )}
 
-            <RoomChatBox compact />
+            {room.online && <RoomChatBox compact />}
 
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-ink/75">Waiting for host to launch the match…</span>
-              <button
-                type="button"
-                onClick={handleLeaveLobbyRoom}
-                className={`rounded-xl bg-[#ffe0ea] px-3 py-1.5 text-xs font-bold uppercase ${INK_BTN}`}
-              >
-                Leave
-              </button>
+              <span className="text-xs font-semibold text-ink/75">
+                {room.online
+                  ? 'Waiting for host to launch the match…'
+                  : room.statusNote ?? 'Connecting to room…'}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {room.status === 'offline' && (
+                  <button
+                    type="button"
+                    onClick={retryMultiplayerConnection}
+                    className={`rounded-xl bg-[#ffd875] px-3 py-1.5 text-xs font-bold uppercase ${INK_BTN}`}
+                  >
+                    Retry
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleLeaveLobbyRoom}
+                  className={`rounded-xl bg-[#ffe0ea] px-3 py-1.5 text-xs font-bold uppercase ${INK_BTN}`}
+                >
+                  Leave
+                </button>
+              </div>
             </div>
           </div>
         ) : (
@@ -545,6 +638,11 @@ export function HomeLobbyModal() {
                 <p className="text-xs font-medium text-ink/75">
                   Generate a 9-digit room code, see friends join live, and hit Start Game when everyone is ready.
                 </p>
+                {createError && (
+                  <p role="alert" className="text-[11px] font-bold text-[#d90429]">
+                    {createError}
+                  </p>
+                )}
               </div>
 
               <button
@@ -558,7 +656,7 @@ export function HomeLobbyModal() {
             </div>
 
             {/* Join Room Panel */}
-            <div className="flex flex-col justify-between gap-2 rounded-2xl border-[3px] border-ink bg-white p-3 shadow-ink-sm">
+            <form onSubmit={handleJoinRoom} className="flex flex-col justify-between gap-2 rounded-2xl border-[3px] border-ink bg-white p-3 shadow-ink-sm">
               <div className="flex flex-col gap-1.5">
                 <h2 className="text-xs font-bold tracking-wide uppercase sm:text-sm">Join Room</h2>
                 <p className="text-xs font-medium text-ink/75">
@@ -573,6 +671,7 @@ export function HomeLobbyModal() {
                     onChange={(e) => {
                       setJoinInput(e.target.value);
                       if (joinError) setJoinError(null);
+                      if (roomAlert) useGameStore.getState().setRoomAlert(null);
                     }}
                     className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-[#fff8f5] px-2.5 py-1.5 text-xs font-bold text-ink placeholder:font-medium placeholder:text-ink/45 focus:outline-none"
                   />
@@ -585,38 +684,20 @@ export function HomeLobbyModal() {
                     Paste
                   </button>
                 </div>
-                {joinError && (
+                {(joinError || roomAlert) && (
                   <p role="alert" className="text-[11px] font-bold text-[#d90429]">
-                    {joinError}
+                    {joinError ?? roomAlert}
                   </p>
                 )}
               </div>
 
-              {offlineFallbackReady ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    startMatch({
-                      mode: format,
-                      vsAi: false,
-                      simulation: false,
-                      room: { code: room!.code, role: 'guest', peers: 1 },
-                    })
-                  }
-                  className={`min-h-9 w-full rounded-xl bg-[#ffd875] px-3 text-xs font-bold uppercase ${INK_BTN}`}
-                >
-                  Open Offline Preview
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleJoinRoom}
-                  className={`min-h-9 w-full rounded-xl bg-[#9bf6d0] px-3 text-sm font-bold uppercase ${INK_BTN}`}
-                >
-                  Join Room
-                </button>
-              )}
-            </div>
+              <button
+                type="submit"
+                className={`min-h-9 w-full rounded-xl bg-[#9bf6d0] px-3 text-sm font-bold uppercase ${INK_BTN}`}
+              >
+                Join Room
+              </button>
+            </form>
 
             <p className="sm:col-span-2 rounded-xl border-2 border-ink/20 bg-white/80 px-2.5 py-1 text-center text-[11px] font-semibold text-ink/75">
               {room?.statusNote ?? 'Share your 9-digit room code — empty seats automatically run smart bots if you start early.'}

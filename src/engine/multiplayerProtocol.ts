@@ -24,6 +24,7 @@ export interface SeatInfo {
   playerName?: string;
   label: string;
   connected: boolean;
+  disconnectedAt?: number;
 }
 
 export interface RoomSnapshot {
@@ -40,6 +41,8 @@ export interface RoomSnapshot {
 
 export type ClientMessage =
   | { type: 'join'; playerId: string; name?: string }
+  | { type: 'leave' }
+  | { type: 'ping' }
   | { type: 'set_name'; name: string }
   | { type: 'select_team'; team: TeamId }
   | { type: 'set_mode'; mode: GameMode }
@@ -52,6 +55,7 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: 'snapshot'; snapshot: RoomSnapshot }
+  | { type: 'pong' }
   | { type: 'roll'; value: number; team: TeamId }
   | { type: 'move'; pawnId: string; team: TeamId }
   | { type: 'reset'; mode: GameMode }

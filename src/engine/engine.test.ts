@@ -28,6 +28,7 @@ import { useGameStore } from './gameStore';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
 import { buildRoomShareUrl, formatRoomCode, generateRoomCode, parseRoomCodeInput } from './roomCode';
 import {
+  LOBBY_RECONNECT_GRACE_MS,
   ROOM_IDLE_TTL_MS,
   createRoomRecord,
   disconnectPlayer,
@@ -35,6 +36,8 @@ import {
   isRoomCodeOccupied,
   isRoomExpired,
   joinRoom,
+  leaveRoom,
+  pruneExpiredLobbySeats,
   snapshotForPlayer,
 } from '../../worker/roomLogic';
 
@@ -403,6 +406,7 @@ describe('roomCode helpers', () => {
       `https://infinitystudio.store/ludo?room=${code}`,
     );
     expect(parseRoomCodeInput(url)).toBe(code);
+    expect(parseRoomCodeInput(`https://inkfinitystudio.store/game-room?parentUrl=https%3A%2F%2Finkfinitystudio.store&room=${formatRoomCode(code).replace(/-/g, '%2D')}&ref=wa`)).toBe(code);
     expect(parseRoomCodeInput(formatRoomCode(code))).toBe(code);
     expect(parseRoomCodeInput(`  ${code}  `)).toBe(code);
     expect(parseRoomCodeInput('12345')).toBeNull();
@@ -590,6 +594,54 @@ describe('multiplayer roomLogic', () => {
       expect(new Set(corners).size).toBe(4);
       expect(Number.isFinite(getBoardYawForTeam(team))).toBe(true);
     }
+  });
+
+  it('preserves lobby host & seats across temporary disconnects, handles explicit leave, and prunes expired seats', () => {
+    const t0 = 1_700_000_000_000;
+    let room = createRoomRecord('555111999', '2P_COUPLES');
+    room = joinRoom(room, 'host-1', 'Aman', t0);
+
+    // Host switches apps (WS drops) while sharing link -> seat & hostId stay reserved!
+    room = disconnectPlayer(room, 'host-1', t0 + 1000);
+    expect(room.hostId).toBe('host-1');
+    expect(room.seats[0]).toMatchObject({ occupant: 'human', playerId: 'host-1', connected: false });
+
+    // Friend opens link while host is briefly disconnected -> joins the SAME room on next seat!
+    room = joinRoom(room, 'guest-2', 'Priya', t0 + 2000);
+    expect(room.hostId).toBe('host-1');
+    expect(snapshotForPlayer(room, 'guest-2').yourTeam).toBe('YELLOW');
+    expect(snapshotForPlayer(room, 'guest-2').isHost).toBe(false);
+
+    // Host switches back & reconnects -> restores connected status with both players visible!
+    room = joinRoom(room, 'host-1', 'Aman', t0 + 3000);
+    const hostSnap = snapshotForPlayer(room, 'host-1');
+    expect(hostSnap.isHost).toBe(true);
+    expect(hostSnap.seats.filter((s) => s.occupant === 'human' && s.connected)).toHaveLength(2);
+
+    // Explicit leave removes lobby seat and promotes remaining player to host.
+    room = leaveRoom(room, 'host-1', t0 + 4000);
+    expect(room.hostId).toBe('guest-2');
+    expect(room.seats[0].occupant).toBe('open');
+
+    // Unexpected disconnect beyond LOBBY_RECONNECT_GRACE_MS prunes stale seat.
+    room = disconnectPlayer(room, 'guest-2', t0 + 5000);
+    room = pruneExpiredLobbySeats(room, t0 + 5000 + LOBBY_RECONNECT_GRACE_MS + 1);
+    expect(room.seats.every((s) => s.occupant === 'open')).toBe(true);
+    expect(room.hostId).toBe('');
+  });
+
+  it('synchronizes room mode in gameStore lobby snapshot', () => {
+    const store = useGameStore.getState();
+    store.initRoomSession({ code: '123456789', mode: '4P_FFA', role: 'guest', status: 'connecting' });
+    let room = createRoomRecord('123456789', '2P_COUPLES');
+    room = joinRoom(room, 'host-1', 'Aman');
+    room = joinRoom(room, 'guest-2', 'Priya');
+
+    store.syncRoomSnapshot(snapshotForPlayer(room, 'guest-2'));
+    const next = useGameStore.getState();
+    expect(next.room?.mode).toBe('2P_COUPLES');
+    expect(next.game.mode).toBe('2P_COUPLES');
+    expect(next.room?.myTeam).toBe('YELLOW');
   });
 
   it('triggers mobile vibration patterns safely when supported and skips silently otherwise', () => {

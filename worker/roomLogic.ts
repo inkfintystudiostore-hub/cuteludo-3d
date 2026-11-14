@@ -10,6 +10,7 @@ import { ROOM_EMOTE_IDS, type ClientMessage, type RoomSnapshot, type SeatInfo, t
 const VALID_EMOTES = new Set<string>(ROOM_EMOTE_IDS);
 
 export const ROOM_IDLE_TTL_MS = 6 * 60 * 60 * 1000;
+export const LOBBY_RECONNECT_GRACE_MS = 5 * 60 * 1000;
 
 export interface RoomRecord {
   code: string;
@@ -128,21 +129,68 @@ export function snapshotForPlayer(record: RoomRecord, playerId: string): RoomSna
   };
 }
 
-export function joinRoom(record: RoomRecord, playerId: string, name?: string): RoomRecord {
-  const seats = record.seats.map((s) => ({ ...s }));
+function clearSeat(seat: SeatInfo): SeatInfo {
+  return {
+    team: seat.team,
+    occupant: 'open',
+    playerId: null,
+    playerName: undefined,
+    label: 'Waiting…',
+    connected: false,
+  };
+}
+
+export function pruneExpiredLobbySeats(record: RoomRecord, now = Date.now()): RoomRecord {
+  if (record.started) return record;
+  let changed = false;
+  const seats = record.seats.map((s) => {
+    if (
+      s.occupant === 'human' &&
+      !s.connected &&
+      typeof s.disconnectedAt === 'number' &&
+      now - s.disconnectedAt > LOBBY_RECONNECT_GRACE_MS
+    ) {
+      changed = true;
+      return clearSeat(s);
+    }
+    return s;
+  });
+  if (!changed) return record;
+
+  let hostId = record.hostId;
+  if (hostId && !seats.some((s) => s.occupant === 'human' && s.playerId === hostId)) {
+    const nextIdx = seats.findIndex((s) => s.occupant === 'human' && s.connected && s.playerId);
+    const fallbackIdx = nextIdx >= 0 ? nextIdx : seats.findIndex((s) => s.occupant === 'human' && s.playerId);
+    if (fallbackIdx >= 0 && seats[fallbackIdx].playerId) {
+      hostId = seats[fallbackIdx].playerId!;
+      seats[fallbackIdx] = {
+        ...seats[fallbackIdx],
+        label: formatHumanLabel(seats[fallbackIdx].team, fallbackIdx, true, seats[fallbackIdx].playerName),
+      };
+    } else {
+      hostId = '';
+    }
+  }
+  return { ...record, hostId, seats };
+}
+
+export function joinRoom(record: RoomRecord, playerId: string, name?: string, now = Date.now()): RoomRecord {
+  const pruned = pruneExpiredLobbySeats(record, now);
+  const seats = pruned.seats.map((s) => ({ ...s }));
   const cleanName = sanitizePlayerName(name);
   const existingIdx = seats.findIndex((s) => s.playerId === playerId);
   if (existingIdx >= 0) {
     const existing = seats[existingIdx];
     existing.connected = true;
-    const hostId = record.hostId || playerId;
+    delete existing.disconnectedAt;
+    const hostId = pruned.hostId || playerId;
     if (cleanName !== undefined) existing.playerName = cleanName;
     existing.label = formatHumanLabel(existing.team, existingIdx, hostId === playerId, existing.playerName);
-    return { ...record, hostId, seats };
+    return { ...pruned, hostId, seats };
   }
 
-  let hostId = record.hostId;
-  if (!record.started) {
+  let hostId = pruned.hostId;
+  if (!pruned.started) {
     const openIdx = seats.findIndex((s) => s.occupant === 'open');
     if (openIdx >= 0) {
       const open = seats[openIdx];
@@ -153,34 +201,54 @@ export function joinRoom(record: RoomRecord, playerId: string, name?: string): R
       open.playerId = playerId;
       open.playerName = cleanName;
       open.connected = true;
+      delete open.disconnectedAt;
       open.label = formatHumanLabel(open.team, takenCount, isHost, cleanName);
+    }
+  }
+
+  return { ...pruned, hostId, seats };
+}
+
+export function disconnectPlayer(record: RoomRecord, playerId: string, now = Date.now()): RoomRecord {
+  const seats = record.seats.map((s) => ({ ...s }));
+  const target = seats.find((s) => s.playerId === playerId);
+  if (!target) return record;
+
+  // Keep lobby seats reserved across brief network drops / mobile app switches (e.g. sharing link in WhatsApp).
+  target.connected = false;
+  target.disconnectedAt = now;
+
+  let hostId = record.hostId;
+  if (record.started && hostId === playerId) {
+    const nextIdx = seats.findIndex((s) => s.occupant === 'human' && s.connected && s.playerId);
+    if (nextIdx >= 0 && seats[nextIdx].playerId) {
+      hostId = seats[nextIdx].playerId!;
+      seats[nextIdx].label = formatHumanLabel(seats[nextIdx].team, nextIdx, true, seats[nextIdx].playerName);
     }
   }
 
   return { ...record, hostId, seats };
 }
 
-export function disconnectPlayer(record: RoomRecord, playerId: string): RoomRecord {
-  const seats = record.seats.map((s) => ({ ...s }));
-  const target = seats.find((s) => s.playerId === playerId);
-  if (!target) return record;
-
-  if (!record.started) {
-    target.occupant = 'open';
-    target.playerId = null;
-    target.playerName = undefined;
-    target.connected = false;
-    target.label = 'Waiting…';
-  } else {
-    target.connected = false;
+export function leaveRoom(record: RoomRecord, playerId: string, now = Date.now()): RoomRecord {
+  if (record.started) {
+    return disconnectPlayer(record, playerId, now);
   }
+  const seats = record.seats.map((s) => ({ ...s }));
+  const idx = seats.findIndex((s) => s.playerId === playerId && s.occupant === 'human');
+  if (idx < 0) return record;
+
+  seats[idx] = clearSeat(seats[idx]);
 
   let hostId = record.hostId;
   if (hostId === playerId) {
     const nextIdx = seats.findIndex((s) => s.occupant === 'human' && s.connected && s.playerId);
-    if (nextIdx >= 0 && seats[nextIdx].playerId) {
-      hostId = seats[nextIdx].playerId!;
-      seats[nextIdx].label = formatHumanLabel(seats[nextIdx].team, nextIdx, true, seats[nextIdx].playerName);
+    const fallbackIdx = nextIdx >= 0 ? nextIdx : seats.findIndex((s) => s.occupant === 'human' && s.playerId);
+    if (fallbackIdx >= 0 && seats[fallbackIdx].playerId) {
+      hostId = seats[fallbackIdx].playerId!;
+      seats[fallbackIdx].label = formatHumanLabel(seats[fallbackIdx].team, fallbackIdx, true, seats[fallbackIdx].playerName);
+    } else {
+      hostId = '';
     }
   }
 
@@ -210,8 +278,17 @@ export function handleRoomAction(
   random: () => number = Math.random,
 ): RoomActionResult {
   switch (msg.type) {
+    case 'ping': {
+      return { record, broadcast: [], reply: { type: 'pong' }, persist: false };
+    }
+
     case 'join': {
       const next = joinRoom(record, playerId, msg.name);
+      return { record: next, broadcast: [], broadcastSnapshots: true, persist: true };
+    }
+
+    case 'leave': {
+      const next = leaveRoom(record, playerId);
       return { record: next, broadcast: [], broadcastSnapshots: true, persist: true };
     }
 

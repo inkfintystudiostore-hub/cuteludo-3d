@@ -29,10 +29,31 @@ export function parseRoomCodeInput(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
-  // Try parsing as a full or relative invite link with ?room=
-  const roomQueryMatch = trimmed.match(/[?&]room=([0-9\-\s]{9,15})/i);
+  // Try parsing as a full URL or query string with ?room= (handles URL-encoded hyphens/spaces).
+  const queryStart = trimmed.indexOf('?');
+  if (queryStart >= 0 || /^room=/i.test(trimmed)) {
+    const queryStr = queryStart >= 0 ? trimmed.slice(queryStart + 1).split('#')[0] : trimmed;
+    try {
+      const params = new URLSearchParams(queryStr);
+      const roomParam = params.get('room');
+      if (roomParam) {
+        const digits = roomParam.replace(/\D/g, '');
+        return digits.length === ROOM_CODE_LENGTH ? digits : null;
+      }
+    } catch {
+      // Fall through to regex/digit extraction.
+    }
+  }
+
+  const roomQueryMatch = trimmed.match(/[?&]room=([^&#]+)/i);
   if (roomQueryMatch) {
-    const digits = roomQueryMatch[1].replace(/\D/g, '');
+    let decoded = roomQueryMatch[1];
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {
+      // Keep raw match if malformed URI sequence.
+    }
+    const digits = decoded.replace(/\D/g, '');
     return digits.length === ROOM_CODE_LENGTH ? digits : null;
   }
 

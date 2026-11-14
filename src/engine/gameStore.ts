@@ -57,6 +57,7 @@ export type RoomConnectionStatus = 'idle' | 'connecting' | 'connected' | 'offlin
 
 export interface RoomSession {
   code: string;
+  mode?: GameMode;
   role: 'host' | 'guest';
   peers: number;
   online: boolean;
@@ -192,6 +193,7 @@ function turnNotice(team: TeamId): string {
 function normalizeRoom(input: Partial<RoomSession> & { code: string; role: 'host' | 'guest' }): RoomSession {
   return {
     code: input.code,
+    mode: input.mode,
     role: input.role,
     peers: input.peers ?? 1,
     online: input.online ?? false,
@@ -379,6 +381,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const shouldEnterPlaying = snapshot.started && prev.screen !== 'playing';
     const nextRoom: RoomSession = {
       code: snapshot.code,
+      mode: snapshot.mode,
       role: snapshot.isHost ? 'host' : 'guest',
       peers: Math.max(1, connectedCount),
       online: true,
@@ -403,11 +406,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    // If not currently mid-animation, keep board aligned cleanly (useful on initial mid-match join).
-    if (!prev.isAnimating && prev.screen === 'playing') {
-      const legal = snapshot.game.phase === 'MOVE' && snapshot.game.dice
-        ? applyRoll({ ...snapshot.game, phase: 'ROLL' }, snapshot.game.dice).legalMoves
-        : [];
+    // Keep lobby mode & in-match board aligned cleanly when not mid-animation.
+    if (!prev.isAnimating && (prev.screen === 'playing' || !snapshot.started)) {
+      const legal =
+        snapshot.game.phase === 'MOVE' && snapshot.game.dice
+          ? applyRoll({ ...snapshot.game, phase: 'ROLL' }, snapshot.game.dice).legalMoves
+          : [];
       set({
         room: nextRoom,
         game: snapshot.game,

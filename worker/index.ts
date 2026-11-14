@@ -24,6 +24,7 @@ interface Env {
 
 interface SocketAttachment {
   playerId: string;
+  leftExplicitly?: boolean;
 }
 
 const VALID_MODES = new Set<GameMode>(['2P_COUPLES', '3P_FFA', '4P_FFA', '2V2_TEAM']);
@@ -187,12 +188,41 @@ export class LudoRoomDO extends DurableObject<Env> {
     const code = codeMatch?.[1] ?? '000000000';
     const playerId = url.searchParams.get('pid')?.trim() || crypto.randomUUID();
     const playerName = url.searchParams.get('name') ?? undefined;
+    const intent = url.searchParams.get('intent');
+
+    if (!this.room && intent === 'join') {
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      server.accept();
+      server.send(
+        JSON.stringify({
+          type: 'error',
+          message: 'Room not found or has ended. Ask your friend for a fresh room code or link.',
+        } satisfies ServerMessage),
+      );
+      server.close(4004, 'Room not found or has ended');
+      return new Response(null, { status: 101, webSocket: client });
+    }
 
     if (!this.room) {
       this.room = createRoomRecord(code, mode);
     }
 
     const updated = joinRoom(this.room, playerId, playerName);
+    if (!updated.started && !updated.seats.some((s) => s.playerId === playerId)) {
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      server.accept();
+      server.send(
+        JSON.stringify({
+          type: 'error',
+          message: 'This room is already full.',
+        } satisfies ServerMessage),
+      );
+      server.close(4003, 'Room is full');
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
     await this.saveRoom(updated);
 
     const pair = new WebSocketPair();
@@ -233,7 +263,17 @@ export class LudoRoomDO extends DurableObject<Env> {
     const playerId = parsed.type === 'join' ? parsed.playerId : (meta?.playerId ?? '');
     if (!playerId) return;
 
+    if (parsed.type === 'leave') {
+      ws.serializeAttachment({ playerId, leftExplicitly: true } satisfies SocketAttachment);
+    }
+
     const result = handleRoomAction(this.room, playerId, parsed);
+    if (parsed.type === 'leave' && !result.record.started && result.record.seats.every((s) => s.occupant === 'open')) {
+      this.room = null;
+      await this.ctx.storage.deleteAll();
+      return;
+    }
+
     if (result.persist) await this.saveRoom(result.record);
     else this.room = result.record;
 
@@ -250,21 +290,21 @@ export class LudoRoomDO extends DurableObject<Env> {
 
   private async handleDisconnectSocket(ws: WebSocket) {
     const meta = ws.deserializeAttachment() as SocketAttachment | null;
-    if (!meta?.playerId || !this.room) return;
+    if (!meta?.playerId || !this.room || meta.leftExplicitly) return;
     const next = disconnectPlayer(this.room, meta.playerId);
-    const allHumansLeftLobby = !next.started && next.seats.every((s) => s.occupant === 'open');
-    if (allHumansLeftLobby) {
-      this.room = null;
-      await this.ctx.storage.deleteAll();
-      return;
-    }
     await this.saveRoom(next);
     this.broadcastPersonalizedSnapshots(next);
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string) {
     await this.handleDisconnectSocket(ws);
-    ws.close(code, reason);
+    if (code === 1000 || (code >= 3000 && code <= 4999)) {
+      try {
+        ws.close(code, reason);
+      } catch {
+        // Ignore already-closed socket errors.
+      }
+    }
   }
 
   async webSocketError(ws: WebSocket, error: unknown) {
