@@ -52,17 +52,19 @@ function CameraRig() {
   const needsAutoReturnRef = useRef(false);
   const curSphericalRef = useRef(new THREE.Spherical());
   const dstSphericalRef = useRef(new THREE.Spherical());
+  const [lockedDistance, setLockedDistance] = useState(18);
 
   const cameraResetTick = useGameStore((s) => s.cameraResetTick);
 
   useEffect(() => {
     const dom = gl.domElement;
-    const onWheel = () => {
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) e.preventDefault();
       lastInteractionAtRef.current = performance.now();
       isReturningRef.current = false;
       needsAutoReturnRef.current = true;
     };
-    dom.addEventListener('wheel', onWheel, { passive: true });
+    dom.addEventListener('wheel', onWheel, { passive: false });
     return () => dom.removeEventListener('wheel', onWheel);
   }, [gl]);
 
@@ -82,6 +84,7 @@ function CameraRig() {
     const fitWidth = radius / (tanHalf * aspect) + nearEdge;
     const distance = Math.max(fitHeight, fitWidth);
 
+    setLockedDistance(distance);
     defaultPosRef.current.set(0, Math.sin(elevation) * distance, Math.cos(elevation) * distance);
     isProgrammaticUpdateRef.current = true;
     camera.fov = fov;
@@ -102,6 +105,15 @@ function CameraRig() {
   }, [camera, width, height, cameraResetTick]);
 
   useFrame((_, delta) => {
+    const targetDist = defaultPosRef.current.length();
+    if (targetDist > 1 && Math.abs(camera.position.length() - targetDist) > 0.01) {
+      // Lock distance so zooming or pinching never leaves the board enlarged or shrunk.
+      isProgrammaticUpdateRef.current = true;
+      camera.position.setLength(targetDist);
+      controlsRef.current?.update();
+      isProgrammaticUpdateRef.current = false;
+    }
+
     if (!needsAutoReturnRef.current || isInteractingRef.current || !controlsRef.current) return;
     if (performance.now() - lastInteractionAtRef.current < CAMERA_AUTO_RESET_MS) return;
 
@@ -148,13 +160,15 @@ function CameraRig() {
     <OrbitControls
       ref={controlsRef}
       makeDefault
+      enableZoom={false}
       enablePan={false}
       enableDamping
       dampingFactor={0.08}
-      minDistance={12}
-      maxDistance={90}
+      minDistance={lockedDistance}
+      maxDistance={lockedDistance}
       minPolarAngle={THREE.MathUtils.degToRad(16)}
       maxPolarAngle={THREE.MathUtils.degToRad(68)}
+      touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.ROTATE }}
       onStart={() => {
         isInteractingRef.current = true;
         isReturningRef.current = false;
@@ -183,7 +197,7 @@ export function LudoCanvas() {
   useEffect(() => () => cleanupCanvasRef.current?.(), []);
 
   return (
-    <div className="h-full w-full" onDoubleClick={triggerCameraReset}>
+    <div className="h-full w-full touch-none select-none" onDoubleClick={triggerCameraReset}>
       {/* `flat`: the composer owns the output, and un-tone-mapped colours keep the pastels true. */}
       <Canvas
         key={canvasKey}

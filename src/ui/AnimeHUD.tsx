@@ -151,9 +151,6 @@ function TopLeftGameMenu() {
   const screen = useGameStore((s) => s.screen);
   const paused = useGameStore((s) => s.paused);
   const room = useGameStore((s) => s.room);
-  const chatOpen = useGameStore((s) => s.chatOpen);
-  const unreadChat = useGameStore((s) => s.unreadChat);
-  const chatMessages = useGameStore((s) => s.chatMessages);
   const setChatOpen = useGameStore((s) => s.setChatOpen);
   const muted = useSyncExternalStore(soundManager.subscribe, soundManager.isMuted);
   const setPaused = useGameStore((s) => s.setPaused);
@@ -163,38 +160,18 @@ function TopLeftGameMenu() {
 
   const [open, setOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [toastChatId, setToastChatId] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const wasChatOpenRef = useRef(chatOpen);
-  const latestChat = chatMessages[chatMessages.length - 1] ?? null;
 
   useEffect(() => {
-    // When closing chat, release input focus and reset any soft-keyboard scroll shift so the HUD and board stay in their original state.
-    if (wasChatOpenRef.current && !chatOpen) {
-      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-      window.scrollTo(0, 0);
-    }
-    wasChatOpenRef.current = chatOpen;
-  }, [chatOpen]);
-
-  useEffect(() => {
-    if (!latestChat || chatOpen) return;
-    setToastChatId(latestChat.id);
-    const timer = setTimeout(() => setToastChatId(null), 3500);
-    return () => clearTimeout(timer);
-  }, [latestChat?.id, chatOpen]);
-
-  useEffect(() => {
-    if (!open && !chatOpen) return;
+    if (!open) return;
     const handleOutside = (e: PointerEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setOpen(false);
-        setChatOpen(false);
       }
     };
     window.addEventListener('pointerdown', handleOutside);
     return () => window.removeEventListener('pointerdown', handleOutside);
-  }, [open, chatOpen, setChatOpen]);
+  }, [open]);
 
   if (screen !== 'playing') return <div style={{ gridArea: 'menu' }} />;
 
@@ -247,65 +224,6 @@ function TopLeftGameMenu() {
         >
           <span>{room.status === 'connecting' ? 'Reconnecting…' : 'Reconnect'}</span>
         </button>
-      )}
-
-      {room && (
-        <button
-          type="button"
-          aria-expanded={chatOpen}
-          aria-label="Toggle live chat"
-          onClick={() => {
-            setOpen(false);
-            setChatOpen(!chatOpen);
-          }}
-          className={`relative flex min-h-9 shrink-0 items-center gap-1 rounded-xl px-2.5 text-xs font-bold whitespace-nowrap uppercase ${INK_BUTTON} ${
-            chatOpen ? 'bg-ink text-white' : 'bg-[#ffd875] text-ink'
-          }`}
-        >
-          <ChatIcon className="size-3.5" />
-          <span className="hidden sm:inline">Chat</span>
-          {unreadChat > 0 && !chatOpen && (
-            <span className="grid min-w-4 place-items-center rounded-full bg-[#ff3d6e] px-1 text-[10px] font-bold text-white">
-              {unreadChat > 9 ? '9+' : unreadChat}
-            </span>
-          )}
-        </button>
-      )}
-
-      {room && !chatOpen && latestChat && toastChatId === latestChat.id && (
-        <button
-          type="button"
-          onClick={() => setChatOpen(true)}
-          className="hidden max-w-48 cursor-pointer items-center gap-1.5 truncate rounded-xl border-2 border-ink bg-white px-2.5 py-1 text-xs font-bold text-ink shadow-ink-sm sm:flex"
-        >
-          <span
-            className="shrink-0 rounded px-1 text-[10px]"
-            style={{ backgroundColor: latestChat.team ? TEAM_COLORS[latestChat.team] : '#ffe0ea' }}
-          >
-            {latestChat.senderName}
-          </span>
-          <span className="truncate font-semibold">{latestChat.text}</span>
-        </button>
-      )}
-
-      {room && chatOpen && (
-        <div
-          role="dialog"
-          aria-label="Live room chat"
-          className={`absolute top-11 left-0 flex w-72 flex-col gap-2 rounded-2xl bg-white p-2.5 select-text sm:w-80 ${INK_BOX}`}
-        >
-          <div className="flex items-center justify-between border-b-2 border-ink/10 pb-1">
-            <span className="text-xs font-bold tracking-wider text-ink uppercase">Live Room Chat</span>
-            <button
-              type="button"
-              onClick={() => setChatOpen(false)}
-              className="cursor-pointer rounded-md px-1.5 text-xs font-bold text-ink/70 hover:bg-[#ffe0ea] hover:text-ink"
-            >
-              Close
-            </button>
-          </div>
-          <RoomChatBox />
-        </div>
       )}
 
       {open && (
@@ -563,7 +481,133 @@ function MoveLog({ open }: { open: boolean }) {
   );
 }
 
-/** The dialogue box: whose line it is, what just happened, quick pawn chips, and the dice tray. */
+/** Bottom chat toggle, incoming-message popup toast, and keyboard-safe chat drawer. */
+function BottomChatControl() {
+  const room = useGameStore((s) => s.room);
+  const screen = useGameStore((s) => s.screen);
+  const chatOpen = useGameStore((s) => s.chatOpen);
+  const unreadChat = useGameStore((s) => s.unreadChat);
+  const chatMessages = useGameStore((s) => s.chatMessages);
+  const setChatOpen = useGameStore((s) => s.setChatOpen);
+
+  const [toastChatId, setToastChatId] = useState<string | null>(null);
+  const chatWrapRef = useRef<HTMLDivElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const wasChatOpenRef = useRef(chatOpen);
+  const lastSeenIdRef = useRef<string | null>(chatMessages[chatMessages.length - 1]?.id ?? null);
+  const latestChat = chatMessages[chatMessages.length - 1] ?? null;
+
+  useEffect(() => {
+    if (wasChatOpenRef.current && !chatOpen) {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      window.scrollTo(0, 0);
+    }
+    wasChatOpenRef.current = chatOpen;
+  }, [chatOpen]);
+
+  useEffect(() => {
+    if (!latestChat) return;
+    const isNewMessage = lastSeenIdRef.current !== latestChat.id;
+    lastSeenIdRef.current = latestChat.id;
+    if (!isNewMessage || chatOpen) return;
+    setToastChatId(latestChat.id);
+    const timer = setTimeout(() => setToastChatId(null), 4500);
+    return () => clearTimeout(timer);
+  }, [latestChat?.id, chatOpen]);
+
+  useEffect(() => {
+    if (!chatOpen) return;
+    const handleOutside = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (chatWrapRef.current?.contains(target) || drawerRef.current?.contains(target)) return;
+      setChatOpen(false);
+    };
+    window.addEventListener('pointerdown', handleOutside);
+    return () => window.removeEventListener('pointerdown', handleOutside);
+  }, [chatOpen, setChatOpen]);
+
+  if (!room || screen !== 'playing') return null;
+
+  const showToast = !chatOpen && latestChat && toastChatId === latestChat.id;
+
+  return (
+    <>
+      <div ref={chatWrapRef} className="relative flex items-center">
+        {showToast && (
+          <button
+            type="button"
+            role="status"
+            aria-label={`New message from ${latestChat.senderName}: ${latestChat.text}`}
+            onClick={() => {
+              setToastChatId(null);
+              setChatOpen(true);
+            }}
+            className={`fixed right-3 bottom-[8.25rem] z-40 flex w-56 max-w-[calc(100vw-1.5rem)] sm:right-4 sm:bottom-4 sm:w-72 [@media(orientation:landscape)_and_(max-height:500px)]:right-2 [@media(orientation:landscape)_and_(max-height:500px)]:bottom-2 [@media(orientation:landscape)_and_(max-height:500px)]:w-64 cursor-pointer flex-col gap-1 rounded-2xl bg-white p-2.5 text-left transition-transform hover:-translate-y-0.5 motion-safe:animate-[pop-in_0.25s_ease-out] ${INK_BOX}`}
+          >
+            <span className="flex items-center justify-between gap-2 text-[10px] font-bold tracking-wider uppercase">
+              <span className="inline-flex items-center gap-1 text-[#ff3d6e]">
+                <ChatIcon className="size-3" />
+                New Message
+              </span>
+              <span
+                className="max-w-28 truncate rounded-md border border-ink px-1.5 py-0.5 text-ink"
+                style={{ backgroundColor: latestChat.team ? TEAM_COLORS[latestChat.team] : '#ffe0ea' }}
+              >
+                {latestChat.senderName}
+              </span>
+            </span>
+            <span className="line-clamp-2 text-xs leading-snug font-bold text-ink">{latestChat.text}</span>
+            <span className="text-[10px] font-semibold text-ink/60">Tap to open &amp; reply</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          aria-expanded={chatOpen}
+          aria-label="Toggle live chat"
+          onClick={() => {
+            setToastChatId(null);
+            setChatOpen(!chatOpen);
+          }}
+          className={`relative flex min-h-9 [@media(orientation:landscape)_and_(max-height:500px)]:min-h-7 shrink-0 items-center gap-1 rounded-xl px-2.5 [@media(orientation:landscape)_and_(max-height:500px)]:px-2 text-xs font-bold whitespace-nowrap uppercase ${INK_BUTTON} ${
+            chatOpen ? 'bg-ink text-white' : 'bg-[#ffd875] text-ink'
+          }`}
+        >
+          <ChatIcon className="size-3.5" />
+          <span>Chat</span>
+          {unreadChat > 0 && !chatOpen && (
+            <span className="grid min-w-4 place-items-center rounded-full bg-[#ff3d6e] px-1 text-[10px] font-bold text-white shadow-ink-sm">
+              {unreadChat > 9 ? '9+' : unreadChat}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {chatOpen && (
+        <div
+          ref={drawerRef}
+          role="dialog"
+          aria-label="Live room chat"
+          className={`fixed inset-x-3 top-14 z-40 flex flex-col gap-2 rounded-2xl bg-white p-2.5 select-text sm:inset-auto sm:right-4 sm:bottom-20 sm:w-80 [@media(orientation:landscape)_and_(max-height:500px)]:top-3 [@media(orientation:landscape)_and_(max-height:500px)]:bottom-auto [@media(orientation:landscape)_and_(max-height:500px)]:right-3 ${INK_BOX}`}
+        >
+          <div className="flex items-center justify-between border-b-2 border-ink/10 pb-1">
+            <span className="text-xs font-bold tracking-wider text-ink uppercase">Live Room Chat</span>
+            <button
+              type="button"
+              onClick={() => setChatOpen(false)}
+              className="cursor-pointer rounded-md px-1.5 text-xs font-bold text-ink/70 hover:bg-[#ffe0ea] hover:text-ink"
+            >
+              Close
+            </button>
+          </div>
+          <RoomChatBox />
+        </div>
+      )}
+    </>
+  );
+}
+
+/** The dialogue box: whose line it is, what just happened, quick pawn chips, the dice tray, and bottom chat. */
 function DialogueDock() {
   const team = useGameStore((s) => s.game.currentTeam);
   const mode = useGameStore((s) => s.game.mode);
@@ -582,7 +626,7 @@ function DialogueDock() {
     <section
       aria-label="Turn controls"
       style={{ gridArea: 'dock' }}
-      className={`relative mt-3 sm:mt-3.5 landscape:mt-4 flex items-stretch gap-2 sm:gap-3 rounded-xl sm:rounded-2xl bg-white p-1.5 pt-3.5 sm:p-2.5 sm:pt-5 landscape:flex-col landscape:gap-1.5 landscape:self-center [@media(orientation:landscape)_and_(max-height:500px)]:mt-4 [@media(orientation:landscape)_and_(max-height:500px)]:gap-1 [@media(orientation:landscape)_and_(max-height:500px)]:p-1.5 [@media(orientation:landscape)_and_(max-height:500px)]:pt-3 ${INK_BOX}`}
+      className={`relative z-20 mt-3 sm:mt-3.5 landscape:mt-4 flex items-stretch gap-2 sm:gap-3 rounded-xl sm:rounded-2xl bg-white p-1.5 pt-3.5 sm:p-2.5 sm:pt-5 landscape:flex-col landscape:gap-1.5 landscape:self-center [@media(orientation:landscape)_and_(max-height:500px)]:mt-4 [@media(orientation:landscape)_and_(max-height:500px)]:gap-1 [@media(orientation:landscape)_and_(max-height:500px)]:p-1.5 [@media(orientation:landscape)_and_(max-height:500px)]:pt-3 ${INK_BOX}`}
     >
       <span
         className="absolute -top-3.5 sm:-top-4 left-2.5 sm:left-3 -skew-x-6 rounded-md border-2 sm:border-[3px] border-ink px-2 sm:px-2.5 py-0.5 text-xs sm:text-sm font-bold tracking-wider whitespace-nowrap uppercase shadow-ink-sm"
@@ -611,7 +655,10 @@ function DialogueDock() {
         </p>
         <QuickPawnChips />
         <MoveLog open={effectiveShowLog} />
-        <EmoteBar />
+        <div className="flex flex-wrap items-center justify-between gap-1.5">
+          <EmoteBar />
+          <BottomChatControl />
+        </div>
       </div>
     </section>
   );
@@ -975,9 +1022,37 @@ function useTurnAndEventHaptics() {
   }, [lastEvent, screen, paused, simulation]);
 }
 
+/** Blocks iOS Safari gesture zoom and multi-finger pinch zoom across the game viewport so dice/UI never misalign. */
+function usePreventPinchZoom() {
+  useEffect(() => {
+    const preventDefault = (e: Event) => e.preventDefault();
+    const onTouch = (e: TouchEvent) => {
+      if (e.touches.length > 1) e.preventDefault();
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) e.preventDefault();
+    };
+    document.addEventListener('gesturestart', preventDefault, { passive: false });
+    document.addEventListener('gesturechange', preventDefault, { passive: false });
+    document.addEventListener('gestureend', preventDefault, { passive: false });
+    document.addEventListener('touchstart', onTouch, { passive: false });
+    document.addEventListener('touchmove', onTouch, { passive: false });
+    document.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      document.removeEventListener('gesturestart', preventDefault);
+      document.removeEventListener('gesturechange', preventDefault);
+      document.removeEventListener('gestureend', preventDefault);
+      document.removeEventListener('touchstart', onTouch);
+      document.removeEventListener('touchmove', onTouch);
+      document.removeEventListener('wheel', onWheel);
+    };
+  }, []);
+}
+
 export function AnimeHUD({ children }: { children: ReactNode }) {
   useAutomationAndShortcuts();
   useTurnAndEventHaptics();
+  usePreventPinchZoom();
   return (
     <main className="hud-grid relative select-none">
       <TopLeftGameMenu />

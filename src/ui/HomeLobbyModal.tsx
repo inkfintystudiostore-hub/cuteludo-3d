@@ -266,7 +266,8 @@ export function HomeLobbyModal() {
     }
   };
 
-  const activeTeams: TeamId[] = [...MODE_TEAMS[format]];
+  const effectiveFormat = room?.online && room.mode ? room.mode : format;
+  const activeTeams: TeamId[] = [...MODE_TEAMS[effectiveFormat]];
   const isHostLobby = Boolean(!room?.started && (createdCode || room?.role === 'host'));
   const isGuestLobby = Boolean(!room?.started && room?.role === 'guest');
   const joinedHumanCount = room?.seats?.length

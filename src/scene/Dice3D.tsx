@@ -246,39 +246,41 @@ export function DiceTray({ className = '' }: { className?: string }) {
       }}
       aria-disabled={!clickable}
       aria-label={`Roll the dice for ${TEAM_LABELS[team]}. Dice ${status}.`}
-      className={`relative overflow-hidden rounded-2xl border-[3px] border-ink shadow-ink transition-transform focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ink ${
+      className={`relative touch-manipulation overflow-hidden rounded-2xl border-[3px] border-ink shadow-ink transition-transform focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ink ${
         clickable
           ? 'cursor-pointer hover:-translate-y-0.5 active:translate-x-[3px] active:translate-y-[3px] active:shadow-none'
           : 'cursor-default'
       } ${className}`}
       style={{ backgroundColor: TEAM_COLORS[team] }}
     >
-      <Canvas
-        key={canvasKey}
-        flat
-        dpr={[1, 2.5]}
-        gl={{ antialias: true, powerPreference: 'high-performance', failIfMajorPerformanceCaveat: false }}
-        camera={{ position: [0, 3.3, 2.5], fov: 34 }}
-        onCreated={({ gl, camera }) => {
-          cleanupCanvasRef.current?.();
-          const canvasEl = gl.domElement;
-          const onLost = (e: Event) => {
-            e.preventDefault();
-          };
-          const onRestored = () => setCanvasKey((k) => k + 1);
-          canvasEl.addEventListener('webglcontextlost', onLost);
-          canvasEl.addEventListener('webglcontextrestored', onRestored);
-          cleanupCanvasRef.current = () => {
-            canvasEl.removeEventListener('webglcontextlost', onLost);
-            canvasEl.removeEventListener('webglcontextrestored', onRestored);
-          };
-          camera.lookAt(0, 0.25, 0);
-        }}
-      >
-        <hemisphereLight args={['#ffffff', '#f6d6bd', 1.1]} />
-        <directionalLight color="#fff6e6" intensity={2.1} position={[2, 5, 3]} />
-        <Die />
-      </Canvas>
+      <div className="pointer-events-none size-full">
+        <Canvas
+          key={canvasKey}
+          flat
+          dpr={[1, 2.5]}
+          gl={{ antialias: true, powerPreference: 'high-performance', failIfMajorPerformanceCaveat: false }}
+          camera={{ position: [0, 3.3, 2.5], fov: 34 }}
+          onCreated={({ gl, camera }) => {
+            cleanupCanvasRef.current?.();
+            const canvasEl = gl.domElement;
+            const onLost = (e: Event) => {
+              e.preventDefault();
+            };
+            const onRestored = () => setCanvasKey((k) => k + 1);
+            canvasEl.addEventListener('webglcontextlost', onLost);
+            canvasEl.addEventListener('webglcontextrestored', onRestored);
+            cleanupCanvasRef.current = () => {
+              canvasEl.removeEventListener('webglcontextlost', onLost);
+              canvasEl.removeEventListener('webglcontextrestored', onRestored);
+            };
+            camera.lookAt(0, 0.25, 0);
+          }}
+        >
+          <hemisphereLight args={['#ffffff', '#f6d6bd', 1.1]} />
+          <directionalLight color="#fff6e6" intensity={2.1} position={[2, 5, 3]} />
+          <Die />
+        </Canvas>
+      </div>
       {sixStreak > 0 && (
         <span
           aria-label={`Six streak: ${sixStreak} of 3`}
