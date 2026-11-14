@@ -18,8 +18,10 @@ import { canLocalPlayerAct, getLocalAnchorTeam, useGameStore } from '../engine/g
 import { pickSmartBotMove } from '../engine/ludoRules';
 import { buildRoomShareUrl, formatRoomCode, resolveShareBaseUrl } from '../engine/roomCode';
 import { DiceTray } from '../scene/Dice3D';
+import { CAPTURE_TWIRL_DURATION, SPAWN_DURATION } from '../scene/animationTiming';
 import { CHARACTER_PROFILES } from '../scene/ChibiFigure';
 import { EMOTES, playEmoteVideo, preloadEmoteVideos } from '../scene/emoteMedia';
+import { triggerHaptic } from '../utils/haptics';
 import { soundManager } from '../utils/soundManager';
 import { HomeLobbyModal } from './HomeLobbyModal';
 import { RoomChatBox } from './RoomChatBox';
@@ -879,8 +881,75 @@ function WinnerOverlay() {
   );
 }
 
+/** Vibrates mobile devices on turn arrival and replaces camera shake with subtle event haptics. */
+function useTurnAndEventHaptics() {
+  const screen = useGameStore((s) => s.screen);
+  const paused = useGameStore((s) => s.paused);
+  const simulation = useGameStore((s) => s.simulation);
+  const vsAi = useGameStore((s) => s.vsAi);
+  const room = useGameStore((s) => s.room);
+  const isAnimating = useGameStore((s) => s.isAnimating);
+  const phase = useGameStore((s) => s.game.phase);
+  const currentTeam = useGameStore((s) => s.game.currentTeam);
+  const lastEvent = useGameStore((s) => s.lastEvent);
+  const lastTurnTeamRef = useRef<TeamId | null>(null);
+
+  useEffect(() => {
+    if (screen !== 'playing') {
+      lastTurnTeamRef.current = null;
+      return;
+    }
+    if (paused || simulation || phase === 'GAME_OVER') return;
+
+    const canRollNow =
+      !isAnimating &&
+      phase === 'ROLL' &&
+      canLocalPlayerAct({
+        screen,
+        paused,
+        simulation,
+        vsAi,
+        isAnimating,
+        game: useGameStore.getState().game,
+        room,
+      });
+
+    if (lastTurnTeamRef.current === null) {
+      if (room?.online && canRollNow) triggerHaptic('MY_TURN');
+      lastTurnTeamRef.current = currentTeam;
+      return;
+    }
+
+    if (lastTurnTeamRef.current !== currentTeam) {
+      if (canRollNow) {
+        triggerHaptic('MY_TURN');
+        lastTurnTeamRef.current = currentTeam;
+      } else if (!canLocalPlayerAct({ screen, paused, simulation, vsAi, isAnimating: false, game: useGameStore.getState().game, room })) {
+        // Track opponent turn changes cleanly so returning to the local player's roll always triggers haptic.
+        lastTurnTeamRef.current = currentTeam;
+      }
+    }
+  }, [screen, paused, simulation, vsAi, room, isAnimating, phase, currentTeam]);
+
+  useEffect(() => {
+    if (!lastEvent || screen !== 'playing' || paused || simulation) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (lastEvent.type === 'CAPTURE') {
+      timer = setTimeout(() => triggerHaptic('CAPTURE'), CAPTURE_TWIRL_DURATION * 1000);
+    } else if (lastEvent.type === 'SPAWN_6') {
+      timer = setTimeout(() => triggerHaptic('SPAWN_6'), SPAWN_DURATION * 1000);
+    } else if (lastEvent.type === 'REACH_HOME') {
+      triggerHaptic('REACH_HOME');
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [lastEvent, screen, paused, simulation]);
+}
+
 export function AnimeHUD({ children }: { children: ReactNode }) {
   useAutomationAndShortcuts();
+  useTurnAndEventHaptics();
   return (
     <main className="hud-grid relative select-none">
       <TopLeftGameMenu />

@@ -25,6 +25,7 @@ import {
   type GameState,
 } from './ludoRules';
 import { useGameStore } from './gameStore';
+import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
 import { buildRoomShareUrl, formatRoomCode, generateRoomCode, parseRoomCodeInput } from './roomCode';
 import {
   ROOM_IDLE_TTL_MS,
@@ -589,5 +590,21 @@ describe('multiplayer roomLogic', () => {
       expect(new Set(corners).size).toBe(4);
       expect(Number.isFinite(getBoardYawForTeam(team))).toBe(true);
     }
+  });
+
+  it('triggers mobile vibration patterns safely when supported and skips silently otherwise', () => {
+    const vibrateMock = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('navigator', { vibrate: vibrateMock });
+    try {
+      expect(triggerHaptic('MY_TURN')).toBe(true);
+      expect(vibrateMock).toHaveBeenCalledWith([...HAPTIC_PATTERNS.MY_TURN]);
+      expect(triggerHaptic('CAPTURE')).toBe(true);
+      expect(vibrateMock).toHaveBeenCalledWith([...HAPTIC_PATTERNS.CAPTURE]);
+      expect(triggerHaptic('SPAWN_6')).toBe(true);
+      expect(vibrateMock).toHaveBeenCalledWith(HAPTIC_PATTERNS.SPAWN_6);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(triggerHaptic('MY_TURN')).toBe(false);
   });
 });
