@@ -35,8 +35,8 @@ body {
 .hud-grid {
   display: grid;
   height: 100%;
-  gap: 0.25rem 0.4rem;
-  padding: max(0.25rem, env(safe-area-inset-top)) 0.25rem max(0.35rem, env(safe-area-inset-bottom));
+  gap: 0.18rem 0.35rem;
+  padding: max(0.2rem, env(safe-area-inset-top)) 0.25rem max(0.25rem, env(safe-area-inset-bottom));
   grid-template-columns: 1fr 1fr;
   grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   grid-template-areas:
@@ -66,13 +66,6 @@ body {
       'menu board tr'
       'tl board dock'
       'bl board br';
-  }
-
-  /* Short landscape windows have no room for the move log beside the dice. */
-  @media (max-height: 560px) {
-    .sim-log {
-      display: none;
-    }
   }
 }
 

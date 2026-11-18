@@ -20,7 +20,7 @@ import {
 } from '../../engine/boardMap';
 import { useGameStore } from '../../engine/gameStore';
 import { areAllies } from '../../engine/ludoRules';
-import { CAPTURE_FLIGHT_DURATION, CAPTURE_TWIRL_DURATION, SPAWN_DURATION } from '../animationTiming';
+import { CAPTURE_FLIGHT_DURATION, CAPTURE_GRAB_DURATION, CAPTURE_TWIRL_DURATION, SPAWN_DURATION } from '../animationTiming';
 import { INK, heartPath, inkFill, starPath } from './canvasShapes';
 
 export type EffectRequest = {
@@ -408,10 +408,12 @@ export function AnimeEffects() {
       }
       case 'CAPTURE': {
         const [tile, yard] = lastEvent.pathWaypoints;
-        emitEffect({ type: 'bang', x: tile.x, z: tile.z });
-        emitEffect({ type: 'speedRing', x: tile.x, z: tile.z });
-        emitEffect({ type: 'sparkle', x: tile.x, z: tile.z, y: 1.25, delay: CAPTURE_TWIRL_DURATION + 0.14 });
-        emitEffect({ type: 'dustLanding', x: yard.x, z: yard.z, delay: CAPTURE_TWIRL_DURATION + CAPTURE_FLIGHT_DURATION });
+        const releaseAt = CAPTURE_GRAB_DURATION + CAPTURE_TWIRL_DURATION;
+        emitEffect({ type: 'bang', x: tile.x, z: tile.z, delay: 0.04 });
+        emitEffect({ type: 'sparkle', x: tile.x, z: tile.z, y: 0.85, delay: CAPTURE_GRAB_DURATION });
+        emitEffect({ type: 'speedRing', x: tile.x, z: tile.z, delay: CAPTURE_GRAB_DURATION });
+        emitEffect({ type: 'sparkle', x: tile.x, z: tile.z, y: 1.25, delay: releaseAt });
+        emitEffect({ type: 'dustLanding', x: yard.x, z: yard.z, delay: releaseAt + CAPTURE_FLIGHT_DURATION });
         break;
       }
       case 'SHARED_STAR': {

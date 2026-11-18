@@ -9,7 +9,11 @@ export type AnimalSpecies = 'cat' | 'bunny' | 'bear' | 'frog';
 
 const headCache = new Map<AnimalSpecies, THREE.BufferGeometry>();
 let torsoGeo: THREE.BufferGeometry | null = null;
+let neckGeo: THREE.BufferGeometry | null = null;
 let armGeo: THREE.BufferGeometry | null = null;
+let forearmGeo: THREE.BufferGeometry | null = null;
+let handGeo: THREE.BufferGeometry | null = null;
+let legGeo: THREE.BufferGeometry | null = null;
 let footGeo: THREE.BufferGeometry | null = null;
 let catEarGeo: THREE.BufferGeometry | null = null;
 let bunnyEarGeo: THREE.BufferGeometry | null = null;
@@ -19,23 +23,41 @@ let whiskerGeo: THREE.BufferGeometry | null = null;
 let scarfTieGeo: THREE.BufferGeometry | null = null;
 let beretGeo: THREE.BufferGeometry | null = null;
 
-/** Smoothly pear-shaped plush chibi animal body spanning y = 0.03..0.58. */
+/** Smoothly pear-shaped plush chibi animal body spanning y = 0.035..0.58. */
 export function getAnimalTorsoGeometry(): THREE.BufferGeometry {
   if (torsoGeo) return torsoGeo;
   const pts: THREE.Vector2[] = [];
-  const steps = 18;
+  const steps = 24;
   for (let i = 0; i <= steps; i++) {
     const t = i / steps; // 0 = bottom hip, 1 = neck crown
-    const y = 0.035 + t * 0.545;
-    // Soft bell/pear profile: plump seated belly at t ~ 0.35 tapering softly to neck.
-    const cap = Math.sin(t * Math.PI);
-    const pear = 1.08 - 0.34 * THREE.MathUtils.smoothstep(t, 0.25, 0.92);
-    const r = Math.max(0.001, 0.225 * Math.pow(Math.max(cap, 0), 0.58) * pear);
-    pts.push(new THREE.Vector2(r, y));
+    const y = 0.035 + t * 0.545; // spans 0.035 to 0.58
+
+    // Base closure at bottom (t ~ 0..0.18)
+    const baseCap = Math.sin(Math.min(t / 0.18, 1) * Math.PI * 0.5);
+
+    // Plump chubby belly peaking around t ~ 0.35, gentle chest taper, sturdy neck top
+    let r: number;
+    if (t <= 0.35) {
+      r = 0.235 * Math.pow(Math.max(baseCap, 0.001), 0.45);
+    } else {
+      const neckFactor = THREE.MathUtils.smoothstep(t, 0.35, 1.0);
+      // Torso transitions from chubby belly (0.235) to chest (0.165) to sturdy neck (0.098)
+      r = THREE.MathUtils.lerp(0.235, 0.098, neckFactor);
+    }
+    pts.push(new THREE.Vector2(Math.max(0.001, r), y));
   }
   const geo = new THREE.LatheGeometry(pts, 32);
   geo.computeVertexNormals();
   torsoGeo = geo;
+  return geo;
+}
+
+/** Sturdy rounded plush neck cylinder bridging torso shoulder line and head cavity. */
+export function getNeckGeometry(): THREE.BufferGeometry {
+  if (neckGeo) return neckGeo;
+  const geo = new THREE.CylinderGeometry(0.096, 0.106, 0.12, 24);
+  geo.computeVertexNormals();
+  neckGeo = geo;
   return geo;
 }
 
@@ -104,29 +126,88 @@ export function getAnimalHeadGeometry(species: AnimalSpecies): THREE.BufferGeome
   return geo;
 }
 
-/** Gently curved teardrop plush arm hanging from shoulder. */
+/** Smooth rounded plush upper arm extending from shoulder joint (y = +0.035) to elbow (y = -0.13). */
 export function getArmGeometry(): THREE.BufferGeometry {
   if (armGeo) return armGeo;
   const pts: THREE.Vector2[] = [];
-  const steps = 14;
+  const steps = 18;
   for (let i = 0; i <= steps; i++) {
-    const t = i / steps; // 0 = shoulder top, 1 = rounded paw tip
-    const y = -t * 0.21;
-    const swell = Math.sin(t * Math.PI);
-    const pawBulb = 0.72 + 0.45 * THREE.MathUtils.smoothstep(t, 0.2, 0.78);
-    const r = Math.max(0.001, 0.058 * Math.pow(Math.max(swell, 0), 0.55) * pawBulb);
-    pts.push(new THREE.Vector2(r, y));
+    const t = i / steps; // 0 = shoulder dome top, 1 = elbow ball bottom
+    const y = 0.035 - t * 0.165; // spans from +0.035 to -0.13
+    let r = 0.062;
+    if (t < 0.22) {
+      const cap = Math.sin((t / 0.22) * Math.PI * 0.5);
+      r = 0.062 * Math.pow(Math.max(cap, 0.001), 0.48);
+    } else if (t > 0.8) {
+      const elbow = Math.cos(((t - 0.8) / 0.2) * Math.PI * 0.5);
+      r = 0.054 + 0.008 * elbow;
+    }
+    pts.push(new THREE.Vector2(Math.max(0.001, r), y));
   }
-  const geo = new THREE.LatheGeometry(pts, 18);
+  const geo = new THREE.LatheGeometry(pts, 24);
   geo.computeVertexNormals();
   armGeo = geo;
+  return geo;
+}
+
+/** Smooth plush forearm extending from elbow ball (y = +0.02) to wrist cuff (y = -0.115). */
+export function getForearmGeometry(): THREE.BufferGeometry {
+  if (forearmGeo) return forearmGeo;
+  const pts: THREE.Vector2[] = [];
+  const steps = 18;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps; // 0 = elbow joint, 1 = wrist cuff
+    const y = 0.02 - t * 0.135; // spans from +0.02 to -0.115
+    let r = 0.055;
+    if (t < 0.2) {
+      const cap = Math.sin((t / 0.2) * Math.PI * 0.5);
+      r = 0.054 * Math.pow(Math.max(cap, 0.001), 0.5);
+    } else {
+      const cuff = THREE.MathUtils.smoothstep(t, 0.2, 0.95);
+      r = 0.054 + 0.008 * cuff;
+    }
+    pts.push(new THREE.Vector2(Math.max(0.001, r), y));
+  }
+  const geo = new THREE.LatheGeometry(pts, 24);
+  geo.computeVertexNormals();
+  forearmGeo = geo;
+  return geo;
+}
+
+/** Cute sculpted plush paw/mitten hand centered below wrist with top dome overlapping wrist cuff. */
+export function getHandGeometry(): THREE.BufferGeometry {
+  if (handGeo) return handGeo;
+  const geo = new THREE.SphereGeometry(0.065, 24, 18);
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    let x = pos.getX(i) * 0.96;
+    let y = pos.getY(i) * 1.05 - 0.015;
+    let z = pos.getZ(i) * 1.02;
+    // Flatten slightly on palm side for cute paw pad face
+    if (z > 0) z *= 0.94;
+    // Soft chubby mitten curve toward fingers
+    const tip = THREE.MathUtils.smoothstep(-y, 0.02, 0.08);
+    x *= 1 - 0.06 * tip;
+    pos.setXYZ(i, x, y, z);
+  }
+  geo.computeVertexNormals();
+  handGeo = geo;
+  return geo;
+}
+
+/** Chubby stubby chibi leg connecting lower hip socket to foot. */
+export function getLegGeometry(): THREE.BufferGeometry {
+  if (legGeo) return legGeo;
+  const geo = new THREE.CylinderGeometry(0.065, 0.062, 0.075, 20);
+  geo.computeVertexNormals();
+  legGeo = geo;
   return geo;
 }
 
 /** Plump animal paw foot with flat grounded sole and subtle 3-toe front sculpt. */
 export function getFootGeometry(): THREE.BufferGeometry {
   if (footGeo) return footGeo;
-  const geo = new THREE.SphereGeometry(0.084, 20, 14);
+  const geo = new THREE.SphereGeometry(0.084, 22, 16);
   const pos = geo.getAttribute('position') as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) {
     let x = pos.getX(i) * 1.04;

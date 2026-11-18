@@ -20,6 +20,10 @@ import {
   getCatEarGeometry,
   getCatTailGeometry,
   getFootGeometry,
+  getForearmGeometry,
+  getHandGeometry,
+  getLegGeometry,
+  getNeckGeometry,
   getScarfTieGeometry,
   getWhiskerGeometry,
   type AnimalSpecies,
@@ -430,7 +434,29 @@ function AnimalTail({
   }
 }
 
-function MouthShape({ mouth, species, laughing = false }: { mouth: MouthKind; species: AnimalSpecies; laughing?: boolean }) {
+export type CapturePose =
+  | 'none'
+  | 'grab'
+  | 'twirl_attacker'
+  | 'twirl_victim'
+  | 'throw'
+  | 'flail'
+  | 'laugh'
+  | 'dizzy';
+
+function MouthShape({
+  mouth,
+  species,
+  laughing = false,
+  surprised = false,
+  grinning = false,
+}: {
+  mouth: MouthKind;
+  species: AnimalSpecies;
+  laughing?: boolean;
+  surprised?: boolean;
+  grinning?: boolean;
+}) {
   const darkInkMat = getGlossyMaterial(INK);
   const zPos = species === 'bear' ? 0.302 : species === 'frog' ? 0.268 : 0.278;
   const yPos = species === 'bear' ? -0.088 : species === 'frog' ? -0.082 : -0.095;
@@ -448,14 +474,15 @@ function MouthShape({ mouth, species, laughing = false }: { mouth: MouthKind; sp
     );
   }
 
-  if (mouth === 'o') {
+  if (surprised || mouth === 'o') {
     return (
       <mesh material={darkInkMat} position={[0, yPos - 0.006, zPos]} scale={[1, 1.25, 0.55]}>
-        <sphereGeometry args={[0.022, 18, 14]} />
+        <sphereGeometry args={[0.024, 18, 14]} />
       </mesh>
     );
   }
-  const radius = species === 'frog' ? 0.065 : mouth === 'grin' ? 0.048 : mouth === 'smile' ? 0.036 : 0.023;
+  const effectiveMouth = grinning ? 'grin' : mouth;
+  const radius = species === 'frog' ? 0.065 : effectiveMouth === 'grin' ? 0.048 : effectiveMouth === 'smile' ? 0.036 : 0.023;
   return (
     <mesh material={darkInkMat} position={[0, yPos, zPos]} rotation-z={Math.PI}>
       <torusGeometry args={[radius, 0.0085, 12, 24, Math.PI]} />
@@ -545,6 +572,7 @@ export interface ChibiFigureProps {
   isLastPlace?: boolean;
   isLaughing?: boolean;
   isDizzy?: boolean;
+  capturePose?: CapturePose;
 }
 
 export function ChibiFigure({
@@ -559,6 +587,7 @@ export function ChibiFigure({
   isLastPlace = false,
   isLaughing = false,
   isDizzy = false,
+  capturePose = 'none',
 }: ChibiFigureProps) {
   const species = TEAM_SPECIES[team];
   const charIdx = slot % CHARACTER_PROFILES.length;
@@ -569,8 +598,12 @@ export function ChibiFigure({
   const coatColor = char.shade === 0 ? baseColor : shade(baseColor, char.shade);
 
   const torsoGeo = useMemo(() => getAnimalTorsoGeometry(), []);
+  const neckGeo = useMemo(() => getNeckGeometry(), []);
   const headGeo = useMemo(() => getAnimalHeadGeometry(species), [species]);
   const armGeo = useMemo(() => getArmGeometry(), []);
+  const forearmGeo = useMemo(() => getForearmGeometry(), []);
+  const handGeo = useMemo(() => getHandGeometry(), []);
+  const legGeo = useMemo(() => getLegGeometry(), []);
   const footGeo = useMemo(() => getFootGeometry(), []);
   const eyeMood: EyeMood = species === 'frog' && char.eyeMood !== 'sleepy' ? 'frog' : char.eyeMood;
   const eyeMap = useMemo(() => getAnimeEyeTexture(eyeMood, char.iris), [eyeMood, char.iris]);
@@ -578,6 +611,7 @@ export function ChibiFigure({
   const coatMat = getCoatMaterial(species, coatColor);
   const bellyMat = getSoftSatinMaterial(char.belly, 0.002);
   const pawMat = getCoatMaterial(species, shade(coatColor, -0.14));
+  const innerPawMat = getSoftSatinMaterial(INNER_EAR, 0.002);
   const accentMat = getSoftSatinMaterial(char.accent, 0.002);
   const eyeMat = getEyeMaterial(eyeMap);
 
@@ -586,16 +620,30 @@ export function ChibiFigure({
   const tailRef = useRef<THREE.Group>(null);
   const leftArmRef = useRef<THREE.Group>(null);
   const rightArmRef = useRef<THREE.Group>(null);
+  const leftForearmRef = useRef<THREE.Group>(null);
+  const rightForearmRef = useRef<THREE.Group>(null);
   const marshmallowMatRef = useRef<THREE.MeshStandardMaterial>(null);
   const eyeRefs = useRef<(THREE.Group | null)[]>([]);
 
   const phase = slot * 1.7 + TEAM_IDS.indexOf(team) * 0.9;
+  const activeCapturePose: CapturePose =
+    capturePose !== 'none' ? capturePose : isLaughing ? 'laugh' : isDizzy ? 'dizzy' : 'none';
+  const showLaughPose = activeCapturePose === 'laugh';
+  const showDizzyPose = activeCapturePose === 'dizzy';
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, rawDelta) => {
     const body = bodyRef.current;
     const head = headRef.current;
     if (!body || !head) return;
 
+    // Counteract body y-squash so head remains perfectly spherical and cute
+    if (body.scale.y !== 0) {
+      head.scale.y = 1 / body.scale.y;
+    }
+    head.position.y = isSitting ? 0.61 : 0.65;
+
+    const dt = Math.min(rawDelta, 0.05);
+    const armBlend = 1 - Math.exp(-26 * dt);
     const elapsed = clock.elapsedTime;
     const energy = isHovered ? 1.85 : isMovable ? 1.3 : 1;
     const t = elapsed * char.tempo * energy + phase;
@@ -603,7 +651,93 @@ export function ChibiFigure({
     const sitY = isSitting ? -0.055 : 0;
     const sitLean = isSitting ? -0.06 : 0;
 
-    if (isLaughing) {
+    let leftAx = 0;
+    let leftAz = -0.34;
+    let leftFx = -0.22;
+    let rightAx = 0;
+    let rightAz = 0.34;
+    let rightFx = -0.22;
+
+    if (activeCapturePose === 'grab') {
+      // Both characters reach arms eagerly forward so their palms clasp together.
+      const reachT = elapsed * 18 + phase;
+      body.position.y = sitY;
+      body.scale.y = 1.03;
+      body.rotation.z = Math.sin(reachT) * 0.04;
+      body.rotation.x = sitLean + 0.08;
+      head.rotation.z = Math.sin(reachT) * 0.05;
+      head.rotation.y = 0;
+      head.rotation.x = -0.06;
+      leftAx = -1.48;
+      leftAz = 0.18;
+      leftFx = -0.08;
+      rightAx = -1.48;
+      rightAz = -0.18;
+      rightFx = -0.08;
+    } else if (activeCapturePose === 'twirl_attacker') {
+      // Attacker plants feet, leans back as counterbalance, and grips victim's hands tight!
+      const spinT = elapsed * 22 + phase;
+      body.position.y = sitY;
+      body.scale.y = 1.02;
+      body.rotation.z = Math.sin(spinT) * 0.04;
+      body.rotation.x = sitLean - 0.06;
+      head.rotation.z = Math.sin(spinT * 0.5) * 0.05;
+      head.rotation.y = 0;
+      head.rotation.x = 0.08;
+      leftAx = -1.72;
+      leftAz = 0.22;
+      leftFx = -0.05;
+      rightAx = -1.72;
+      rightAz = -0.22;
+      rightFx = -0.05;
+    } else if (activeCapturePose === 'twirl_victim') {
+      // Victim leans out under centrifugal G-force, gripping attacker's hands while feet fly out!
+      const spinT = elapsed * 26 + phase;
+      body.position.y = sitY;
+      body.scale.y = 1.06;
+      body.rotation.z = Math.sin(spinT) * 0.1;
+      body.rotation.x = sitLean - 0.06;
+      head.rotation.z = Math.sin(spinT * 1.1) * 0.2;
+      head.rotation.y = Math.cos(spinT * 0.7) * 0.16;
+      head.rotation.x = 0.16;
+      leftAx = -0.96;
+      leftAz = 0.22;
+      leftFx = -0.04;
+      rightAx = -0.96;
+      rightAz = -0.22;
+      rightFx = -0.04;
+    } else if (activeCapturePose === 'throw') {
+      // Attacker flings both arms wide & skyward in a triumphant release follow-through!
+      body.position.y = sitY + 0.06;
+      body.scale.y = 1.08;
+      body.rotation.z = 0;
+      body.rotation.x = sitLean - 0.18;
+      head.rotation.z = 0;
+      head.rotation.y = 0;
+      head.rotation.x = -0.28;
+      leftAx = -2.35;
+      leftAz = -0.62;
+      leftFx = -0.05;
+      rightAx = -2.35;
+      rightAz = 0.62;
+      rightFx = -0.05;
+    } else if (activeCapturePose === 'flail') {
+      // Victim tumbles through the air with frantically windmilling arms!
+      const flailT = elapsed * 28 + phase;
+      body.position.y = sitY;
+      body.scale.y = 1.04;
+      body.rotation.z = Math.sin(flailT * 0.6) * 0.14;
+      body.rotation.x = sitLean;
+      head.rotation.z = Math.sin(flailT * 0.9) * 0.26;
+      head.rotation.y = Math.cos(flailT * 0.7) * 0.28;
+      head.rotation.x = 0.14 + Math.sin(flailT) * 0.18;
+      leftAx = -1.75 + Math.sin(flailT) * 0.95;
+      leftAz = -0.52 - Math.cos(flailT * 0.8) * 0.22;
+      leftFx = -0.35 + Math.sin(flailT * 1.1) * 0.3;
+      rightAx = -1.75 - Math.sin(flailT) * 0.95;
+      rightAz = 0.52 + Math.cos(flailT * 0.8) * 0.22;
+      rightFx = -0.35 - Math.sin(flailT * 1.1) * 0.3;
+    } else if (showLaughPose) {
       // Attacker hearty post-capture belly laugh!
       const laughT = elapsed * 14 + phase;
       body.position.y = sitY + Math.abs(Math.sin(laughT * 0.5)) * 0.09;
@@ -613,15 +747,13 @@ export function ChibiFigure({
       head.rotation.z = Math.sin(laughT * 0.7) * 0.1;
       head.rotation.y = Math.sin(laughT * 0.4) * 0.14;
       head.rotation.x = -0.32 + Math.sin(laughT) * 0.11;
-      if (leftArmRef.current) {
-        leftArmRef.current.rotation.x = -1.6 + Math.sin(laughT) * 0.25;
-        leftArmRef.current.rotation.z = 0.35;
-      }
-      if (rightArmRef.current) {
-        rightArmRef.current.rotation.x = -0.8 + Math.sin(laughT) * 0.22;
-        rightArmRef.current.rotation.z = 0.26;
-      }
-    } else if (isDizzy) {
+      leftAx = -1.9 + Math.sin(laughT) * 0.28;
+      leftAz = -0.45;
+      leftFx = -0.25;
+      rightAx = -0.78 + Math.sin(laughT) * 0.2;
+      rightAz = -0.22;
+      rightFx = -0.65;
+    } else if (showDizzyPose) {
       // Victim woozy / chakkar-kha-ke wobble right after capture crash-landing!
       const dizzyT = elapsed * 12 + phase;
       body.position.y = sitY;
@@ -631,14 +763,12 @@ export function ChibiFigure({
       head.rotation.z = Math.sin(dizzyT) * 0.28;
       head.rotation.y = Math.sin(dizzyT * 0.65) * 0.35;
       head.rotation.x = 0.12 + Math.cos(dizzyT * 0.8) * 0.12;
-      if (leftArmRef.current) {
-        leftArmRef.current.rotation.x = -0.75 + Math.sin(dizzyT) * 0.45;
-        leftArmRef.current.rotation.z = 0.4;
-      }
-      if (rightArmRef.current) {
-        rightArmRef.current.rotation.x = -0.75 - Math.sin(dizzyT) * 0.45;
-        rightArmRef.current.rotation.z = -0.4;
-      }
+      leftAx = -1.25 + Math.sin(dizzyT) * 0.4;
+      leftAz = -0.38;
+      leftFx = -0.75;
+      rightAx = -1.25 - Math.sin(dizzyT) * 0.4;
+      rightAz = 0.38;
+      rightFx = -0.75;
     } else if (finalRank === 1) {
       // 1st place: joyful cheering hop & raised arms!
       const cheerT = elapsed * 5.4 + phase;
@@ -649,14 +779,12 @@ export function ChibiFigure({
       head.rotation.z = Math.sin(cheerT * 1.1) * 0.12;
       head.rotation.y = Math.sin(cheerT * 0.7) * 0.18;
       head.rotation.x = -0.16;
-      if (leftArmRef.current) {
-        leftArmRef.current.rotation.x = -2.1 + Math.sin(cheerT * 2) * 0.3;
-        leftArmRef.current.rotation.z = 0.4;
-      }
-      if (rightArmRef.current) {
-        rightArmRef.current.rotation.x = -2.1 - Math.sin(cheerT * 2) * 0.3;
-        rightArmRef.current.rotation.z = -0.4;
-      }
+      leftAx = -2.2 + Math.sin(cheerT * 2) * 0.3;
+      leftAz = -0.46;
+      leftFx = -0.15;
+      rightAx = -2.2 - Math.sin(cheerT * 2) * 0.3;
+      rightAz = 0.46;
+      rightFx = -0.15;
     } else if (isLastPlace) {
       // Last place: comical sulking tantrum & frustrated wobble!
       const rageT = elapsed * 8.5 + phase;
@@ -667,14 +795,12 @@ export function ChibiFigure({
       head.rotation.z = Math.sin(rageT * 1.2) * 0.14;
       head.rotation.y = Math.sin(rageT * 0.9) * 0.32;
       head.rotation.x = 0.2;
-      if (leftArmRef.current) {
-        leftArmRef.current.rotation.x = -0.9 + Math.sin(rageT * 1.6) * 0.55;
-        leftArmRef.current.rotation.z = 0.45;
-      }
-      if (rightArmRef.current) {
-        rightArmRef.current.rotation.x = -0.9 - Math.sin(rageT * 1.6) * 0.55;
-        rightArmRef.current.rotation.z = -0.45;
-      }
+      leftAx = -0.9 + Math.sin(rageT * 1.6) * 0.55;
+      leftAz = -0.45;
+      leftFx = -0.35;
+      rightAx = -0.9 - Math.sin(rageT * 1.6) * 0.55;
+      rightAz = 0.45;
+      rightFx = -0.35;
     } else if (finalRank === 2) {
       // 2nd place: cheerful clapping & proud celebratory nod!
       const clapT = elapsed * 4.2 + phase;
@@ -685,14 +811,12 @@ export function ChibiFigure({
       head.rotation.z = Math.sin(clapT * 0.9) * 0.09;
       head.rotation.y = Math.sin(clapT * 0.5) * 0.2;
       head.rotation.x = -0.12 + Math.sin(clapT * 2) * 0.06;
-      if (leftArmRef.current) {
-        leftArmRef.current.rotation.x = -1.15;
-        leftArmRef.current.rotation.z = -0.2 + Math.sin(clapT * 3) * 0.25;
-      }
-      if (rightArmRef.current) {
-        rightArmRef.current.rotation.x = -1.15;
-        rightArmRef.current.rotation.z = 0.2 - Math.sin(clapT * 3) * 0.25;
-      }
+      leftAx = -1.15;
+      leftAz = 0.22 - Math.sin(clapT * 3) * 0.25;
+      leftFx = -0.45;
+      rightAx = -1.15;
+      rightAz = -0.22 + Math.sin(clapT * 3) * 0.25;
+      rightFx = -0.45;
     } else if (isSitting) {
       // Cozy seated picnic animation tailored to each friend's campfire activity.
       body.position.y = sitY;
@@ -704,14 +828,12 @@ export function ChibiFigure({
         head.rotation.z = Math.sin(singT) * 0.14;
         head.rotation.y = Math.sin(singT * 0.5) * 0.22;
         head.rotation.x = -0.16 + Math.sin(singT * 2) * 0.06;
-        if (leftArmRef.current) {
-          leftArmRef.current.rotation.x = -0.65 + Math.sin(singT * 2) * 0.25;
-          leftArmRef.current.rotation.z = 0.3;
-        }
-        if (rightArmRef.current) {
-          rightArmRef.current.rotation.x = -0.65 - Math.sin(singT * 2) * 0.25;
-          rightArmRef.current.rotation.z = -0.3;
-        }
+        leftAx = -0.75 + Math.sin(singT * 2) * 0.25;
+        leftAz = -0.38;
+        leftFx = -0.45;
+        rightAx = -0.75 - Math.sin(singT * 2) * 0.25;
+        rightAz = 0.38;
+        rightFx = -0.45;
       } else if (activity === 'marshmallow') {
         const mCycle = (elapsed * 0.25 + phase * 0.17) % 1;
         const eatPhase = mCycle > 0.7 ? Math.sin(((mCycle - 0.7) / 0.3) * Math.PI) : 0;
@@ -727,14 +849,12 @@ export function ChibiFigure({
             0.94 - roastProgress * 0.62,
           );
         }
-        if (leftArmRef.current) {
-          leftArmRef.current.rotation.x = -0.25;
-          leftArmRef.current.rotation.z = 0.26;
-        }
-        if (rightArmRef.current) {
-          rightArmRef.current.rotation.x = -1.05 + Math.sin(elapsed * 2.2 + phase) * 0.1 - eatPhase * 0.56;
-          rightArmRef.current.rotation.z = -0.1 + eatPhase * 0.34;
-        }
+        leftAx = -0.28;
+        leftAz = -0.32;
+        leftFx = -0.25;
+        rightAx = -0.95 + Math.sin(elapsed * 2.2 + phase) * 0.1 - eatPhase * 0.52;
+        rightAz = 0.12 - eatPhase * 0.24;
+        rightFx = -0.35 - eatPhase * 0.35;
       } else if (activity === 'eat') {
         const eatT = elapsed * 2.6 + phase;
         const bite = Math.max(0, Math.sin(eatT));
@@ -742,14 +862,12 @@ export function ChibiFigure({
         head.rotation.z = Math.sin(eatT * 0.8) * 0.06;
         head.rotation.y = Math.sin(eatT * 0.4) * 0.12;
         head.rotation.x = -0.04 + bite * 0.18;
-        if (leftArmRef.current) {
-          leftArmRef.current.rotation.x = -0.62;
-          leftArmRef.current.rotation.z = -0.15;
-        }
-        if (rightArmRef.current) {
-          rightArmRef.current.rotation.x = -0.85 - bite * 0.55;
-          rightArmRef.current.rotation.z = 0.18 + bite * 0.14;
-        }
+        leftAx = -0.62;
+        leftAz = 0.12;
+        leftFx = -0.35;
+        rightAx = -0.82 - bite * 0.5;
+        rightAz = -0.18 - bite * 0.12;
+        rightFx = -0.45 - bite * 0.35;
       } else {
         // Cozy chai/coffee sipper around the campfire
         const sipCycle = (elapsed * 0.45 + phase * 0.2) % 1;
@@ -759,14 +877,12 @@ export function ChibiFigure({
         head.rotation.z = Math.sin(sipT * 0.9) * 0.045;
         head.rotation.y = Math.sin(sipT * 0.45) * 0.14 * (1 - sipLift * 0.8);
         head.rotation.x = -0.09 + sipLift * 0.18;
-        if (leftArmRef.current) {
-          leftArmRef.current.rotation.x = -0.25;
-          leftArmRef.current.rotation.z = 0.24;
-        }
-        if (rightArmRef.current) {
-          rightArmRef.current.rotation.x = -0.72 - sipLift * 0.72;
-          rightArmRef.current.rotation.z = 0.18 + sipLift * 0.22;
-        }
+        leftAx = -0.28;
+        leftAz = -0.3;
+        leftFx = -0.25;
+        rightAx = -0.68 - sipLift * 0.65;
+        rightAz = -0.15 - sipLift * 0.15;
+        rightFx = -0.4 - sipLift * 0.35;
       }
     } else {
       body.position.y = 0;
@@ -775,17 +891,30 @@ export function ChibiFigure({
       body.rotation.z = Math.sin(t * 2.4) * char.hipWiggle * energy;
       head.rotation.z = Math.sin(t * 1.3) * char.sway;
       head.rotation.y = Math.sin(t * 0.6) * char.look;
-      head.rotation.x = -0.11 - char.nod * 0.4 * (1 + Math.sin(t * 1.1));
+      head.rotation.x = -0.06 - char.nod * 0.3 * (1 + Math.sin(t * 1.1));
 
-      const wave = isHovered ? -1.05 + Math.sin(t * 6) * 0.35 : Math.sin(t * 2.1) * 0.18;
-      if (leftArmRef.current) {
-        leftArmRef.current.rotation.x = wave;
-        leftArmRef.current.rotation.z = 0.24;
-      }
-      if (rightArmRef.current) {
-        rightArmRef.current.rotation.x = isHovered ? -1.05 - Math.sin(t * 6) * 0.35 : -wave;
-        rightArmRef.current.rotation.z = -0.24;
-      }
+      const wave = isHovered ? -1.15 + Math.sin(t * 6) * 0.38 : Math.sin(t * 2.1) * 0.22;
+      leftAx = wave;
+      leftAz = isHovered ? -0.46 : -0.34;
+      leftFx = isHovered ? -0.35 : -0.22;
+      rightAx = isHovered ? -1.15 - Math.sin(t * 6) * 0.38 : -wave;
+      rightAz = isHovered ? 0.46 : 0.34;
+      rightFx = isHovered ? -0.35 : -0.22;
+    }
+
+    if (leftArmRef.current) {
+      leftArmRef.current.rotation.x = THREE.MathUtils.lerp(leftArmRef.current.rotation.x, leftAx, armBlend);
+      leftArmRef.current.rotation.z = THREE.MathUtils.lerp(leftArmRef.current.rotation.z, leftAz, armBlend);
+    }
+    if (leftForearmRef.current) {
+      leftForearmRef.current.rotation.x = THREE.MathUtils.lerp(leftForearmRef.current.rotation.x, leftFx, armBlend);
+    }
+    if (rightArmRef.current) {
+      rightArmRef.current.rotation.x = THREE.MathUtils.lerp(rightArmRef.current.rotation.x, rightAx, armBlend);
+      rightArmRef.current.rotation.z = THREE.MathUtils.lerp(rightArmRef.current.rotation.z, rightAz, armBlend);
+    }
+    if (rightForearmRef.current) {
+      rightForearmRef.current.rotation.x = THREE.MathUtils.lerp(rightForearmRef.current.rotation.x, rightFx, armBlend);
     }
 
     if (tailRef.current) tailRef.current.rotation.y = Math.sin(t * 4.0) * 0.42;
@@ -793,12 +922,20 @@ export function ChibiFigure({
     const blinking = (elapsed + phase) % char.blinkEvery < 0.12;
     eyeRefs.current.forEach((eye, idx) => {
       if (!eye) return;
-      if (isLaughing) {
+      if (showLaughPose || activeCapturePose === 'throw') {
         eye.scale.y = 0.22 + Math.abs(Math.sin(elapsed * 14 + phase)) * 0.08;
         return;
       }
-      if (isDizzy) {
+      if (showDizzyPose) {
         eye.scale.y = idx === 0 ? 0.28 + Math.abs(Math.sin(elapsed * 10)) * 0.65 : 0.9 - Math.abs(Math.sin(elapsed * 10)) * 0.65;
+        return;
+      }
+      if (activeCapturePose === 'twirl_victim' || activeCapturePose === 'flail') {
+        eye.scale.y = 1.16 + Math.sin(elapsed * 26 + idx * Math.PI) * 0.16;
+        return;
+      }
+      if (activeCapturePose === 'grab' || activeCapturePose === 'twirl_attacker') {
+        eye.scale.y = 1.08;
         return;
       }
       const winkScale = char.winkRight && idx === 1 ? 0.22 : 1;
@@ -806,10 +943,10 @@ export function ChibiFigure({
     });
   });
 
-  const eyeX = species === 'frog' ? 0.145 : 0.11;
+  const eyeX = species === 'frog' ? 0.145 : 0.112;
   const eyeY = species === 'frog' ? 0.145 : 0.022;
-  const eyeZ = species === 'frog' ? 0.215 : 0.252;
-  const eyeRadius = species === 'frog' ? 0.066 : 0.06;
+  const eyeZ = species === 'frog' ? 0.222 : 0.262;
+  const eyeRadius = species === 'frog' ? 0.076 : 0.072;
 
   const showHandCoffee = isSitting && activity === 'coffee';
   const showStaticCoffee = holdingCup && !showHandCoffee;
@@ -822,78 +959,161 @@ export function ChibiFigure({
         {/* Smooth sculpted pear torso */}
         <mesh geometry={torsoGeo} material={coatMat} castShadow receiveShadow />
 
+        {/* Sturdy rounded plush neck connector bridging torso and head */}
+        <mesh geometry={neckGeo} material={coatMat} position={[0, 0.54, 0]} castShadow />
+
         {/* Soft plush belly patch curving with chest contour */}
-        <mesh material={bellyMat} position={[0, 0.26, 0.135]} scale={[1.05, 1.25, 0.55]}>
-          <sphereGeometry args={[0.135, 20, 14]} />
+        <mesh material={bellyMat} position={[0, 0.26, 0.14]} scale={[1.05, 1.25, 0.55]}>
+          <sphereGeometry args={[0.138, 22, 16]} />
         </mesh>
 
-        {/* Smooth teardrop animal arms & sculpted feet (tucked forward when sitting at picnic) */}
+        {/* Articulated plush arms + solid ball-and-socket shoulder + seamless wrists & paw pads */}
         {[-1, 1].map((side) => (
           <group key={side}>
-            <group ref={side < 0 ? leftArmRef : rightArmRef} position={[side * 0.195, 0.43, 0.03]}>
-              <mesh geometry={armGeo} material={coatMat} />
-              {/* Chai / coffee mug held in right hand when sipping at picnic */}
-              {side > 0 && showHandCoffee && (
-                <group position={[0, -0.19, 0.075]} rotation={[0.45, 0, 0]}>
-                  <mesh material={getGlossyMaterial('#fff7eb')}>
-                    <cylinderGeometry args={[0.056, 0.044, 0.095, 16]} />
+            {/* Smooth plush shoulder socket joint anchored firmly inside torso wall */}
+            <mesh
+              material={coatMat}
+              position={[side * 0.142, 0.435, 0.012]}
+              castShadow
+            >
+              <sphereGeometry args={[0.064, 18, 14]} />
+            </mesh>
+
+            <group
+              ref={side < 0 ? leftArmRef : rightArmRef}
+              position={[side * 0.145, 0.435, 0.012]}
+              rotation={[0, 0, side * 0.34]}
+            >
+              <mesh geometry={armGeo} material={coatMat} castShadow />
+
+              {/* Forearm & Elbow Joint */}
+              <group
+                ref={side < 0 ? leftForearmRef : rightForearmRef}
+                position={[0, -0.125, 0]}
+                rotation={[-0.22, 0, 0]}
+              >
+                {/* Overlapping smooth elbow joint ball */}
+                <mesh material={coatMat} castShadow>
+                  <sphereGeometry args={[0.054, 16, 12]} />
+                </mesh>
+                <mesh geometry={forearmGeo} material={coatMat} castShadow />
+
+                {/* Wrist & Paw Hand */}
+                <group position={[0, -0.11, 0]}>
+                  {/* Plush wrist transition cuff */}
+                  <mesh material={coatMat} castShadow>
+                    <sphereGeometry args={[0.056, 16, 12]} />
                   </mesh>
-                  <mesh position={[0.052, 0, 0]} material={getGlossyMaterial('#fff7eb')}>
-                    <torusGeometry args={[0.025, 0.008, 8, 12]} />
+
+                  {/* Cute chubby paw hand */}
+                  <mesh geometry={handGeo} material={pawMat} castShadow />
+
+                  {/* Sculpted inner thumb */}
+                  <mesh
+                    material={pawMat}
+                    position={[-side * 0.038, -0.018, 0.018]}
+                    rotation={[-0.32, 0, -side * 0.58]}
+                    castShadow
+                  >
+                    <capsuleGeometry args={[0.02, 0.024, 6, 12]} />
                   </mesh>
-                  <mesh material={getGlossyMaterial('#9a5b32')} position-y={0.044}>
-                    <cylinderGeometry args={[0.047, 0.047, 0.01, 16]} />
+
+                  {/* Adorable paw pads / toe beans! */}
+                  {/* Main heart-shaped palm pad */}
+                  <mesh
+                    material={innerPawMat}
+                    position={[0, -0.025, 0.038]}
+                    scale={[1.05, 0.9, 0.4]}
+                  >
+                    <sphereGeometry args={[0.026, 14, 10]} />
                   </mesh>
+                  {/* 3 cute little toe bean pads */}
+                  {[-0.022, 0, 0.022].map((bx, bIdx) => (
+                    <mesh
+                      key={bIdx}
+                      material={innerPawMat}
+                      position={[bx, -0.052 - (bIdx === 1 ? 0.005 : 0), 0.036]}
+                      scale={[0.9, 0.9, 0.4]}
+                    >
+                      <sphereGeometry args={[0.011, 10, 8]} />
+                    </mesh>
+                  ))}
+
+                  {/* Chai / coffee mug held in right hand when sipping at picnic */}
+                  {side > 0 && showHandCoffee && (
+                    <group position={[0, -0.045, 0.045]} rotation={[0.35, 0, 0]}>
+                      <mesh material={getGlossyMaterial('#fff7eb')}>
+                        <cylinderGeometry args={[0.056, 0.044, 0.095, 16]} />
+                      </mesh>
+                      <mesh position={[0.052, 0, 0]} material={getGlossyMaterial('#fff7eb')}>
+                        <torusGeometry args={[0.025, 0.008, 8, 12]} />
+                      </mesh>
+                      <mesh material={getGlossyMaterial('#9a5b32')} position-y={0.044}>
+                        <cylinderGeometry args={[0.047, 0.047, 0.01, 16]} />
+                      </mesh>
+                    </group>
+                  )}
+                  {/* Marshmallow roasting stick held in right hand */}
+                  {side > 0 && showMarshmallow && (
+                    <group position={[0, -0.035, 0.03]} rotation={[1.25, 0, 0]}>
+                      <mesh position-y={0.18}>
+                        <cylinderGeometry args={[0.008, 0.008, 0.38, 6]} />
+                        <meshStandardMaterial color="#b07d4f" roughness={0.8} />
+                      </mesh>
+                      <mesh position-y={0.37} rotation-x={Math.PI / 2}>
+                        <cylinderGeometry args={[0.036, 0.036, 0.055, 10]} />
+                        <meshStandardMaterial ref={marshmallowMatRef} color="#fff8f0" roughness={0.6} />
+                      </mesh>
+                      <mesh position={[0, 0.37, 0.026]} rotation-x={Math.PI / 2}>
+                        <cylinderGeometry args={[0.032, 0.032, 0.012, 10]} />
+                        <meshStandardMaterial color="#e09f5a" roughness={0.7} />
+                      </mesh>
+                    </group>
+                  )}
+                  {/* Plate held in left hand & snack bite in right hand */}
+                  {side < 0 && showSnack && (
+                    <group position={[0.015, -0.04, 0.045]}>
+                      <mesh>
+                        <cylinderGeometry args={[0.068, 0.056, 0.014, 14]} />
+                        <meshStandardMaterial color="#ffffff" roughness={0.3} />
+                      </mesh>
+                      <mesh position-y={0.02}>
+                        <boxGeometry args={[0.055, 0.028, 0.05]} />
+                        <meshStandardMaterial color="#ffd6a5" roughness={0.65} />
+                      </mesh>
+                    </group>
+                  )}
+                  {side > 0 && showSnack && (
+                    <group position={[-0.015, -0.045, 0.04]}>
+                      <mesh position-y={0.012}>
+                        <boxGeometry args={[0.042, 0.028, 0.038]} />
+                        <meshStandardMaterial color="#ffd6a5" roughness={0.65} />
+                      </mesh>
+                      <mesh position-y={0.03}>
+                        <sphereGeometry args={[0.016, 8, 6]} />
+                        <meshStandardMaterial color="#ff4d6d" roughness={0.35} />
+                      </mesh>
+                    </group>
+                  )}
                 </group>
-              )}
-              {/* Marshmallow roasting stick held in right hand */}
-              {side > 0 && showMarshmallow && (
-                <group position={[0, -0.18, 0.04]} rotation={[1.3, 0, 0]}>
-                  <mesh position-y={0.18}>
-                    <cylinderGeometry args={[0.008, 0.008, 0.38, 6]} />
-                    <meshStandardMaterial color="#b07d4f" roughness={0.8} />
-                  </mesh>
-                  <mesh position-y={0.37} rotation-x={Math.PI / 2}>
-                    <cylinderGeometry args={[0.036, 0.036, 0.055, 10]} />
-                    <meshStandardMaterial ref={marshmallowMatRef} color="#fff8f0" roughness={0.6} />
-                  </mesh>
-                  <mesh position={[0, 0.37, 0.026]} rotation-x={Math.PI / 2}>
-                    <cylinderGeometry args={[0.032, 0.032, 0.012, 10]} />
-                    <meshStandardMaterial color="#e09f5a" roughness={0.7} />
-                  </mesh>
-                </group>
-              )}
-              {/* Plate held in left hand & snack bite in right hand */}
-              {side < 0 && showSnack && (
-                <group position={[0.02, -0.18, 0.07]}>
-                  <mesh>
-                    <cylinderGeometry args={[0.068, 0.056, 0.014, 14]} />
-                    <meshStandardMaterial color="#ffffff" roughness={0.3} />
-                  </mesh>
-                  <mesh position-y={0.02}>
-                    <boxGeometry args={[0.055, 0.028, 0.05]} />
-                    <meshStandardMaterial color="#ffd6a5" roughness={0.65} />
-                  </mesh>
-                </group>
-              )}
-              {side > 0 && showSnack && (
-                <group position={[-0.02, -0.19, 0.06]}>
-                  <mesh position-y={0.012}>
-                    <boxGeometry args={[0.042, 0.028, 0.038]} />
-                    <meshStandardMaterial color="#ffd6a5" roughness={0.65} />
-                  </mesh>
-                  <mesh position-y={0.03}>
-                    <sphereGeometry args={[0.016, 8, 6]} />
-                    <meshStandardMaterial color="#ff4d6d" roughness={0.35} />
-                  </mesh>
-                </group>
-              )}
+              </group>
             </group>
+
+            {/* Chubby stubby chibi legs connecting hip socket to foot */}
+            <mesh
+              geometry={legGeo}
+              material={coatMat}
+              position={isSitting ? [side * 0.135, 0.065, 0.1] : [side * 0.102, 0.068, 0.038]}
+              rotation={isSitting ? [-0.55, side * 0.3, 0] : [0.08, 0, 0]}
+              castShadow
+            />
+            {/* Plump animal foot paw */}
             <mesh
               geometry={footGeo}
               material={pawMat}
               position={isSitting ? [side * 0.145, 0.042, 0.165] : [side * 0.105, 0.034, 0.055]}
               rotation={isSitting ? [-0.42, side * 0.35, 0] : [0, 0, 0]}
+              castShadow
             />
           </group>
         ))}
@@ -906,10 +1126,10 @@ export function ChibiFigure({
         {/* Sunny's sculpted curved neckerchief scarf + smooth ribbon tie */}
         {char.accessory === 'scarf' && (
           <group>
-            <mesh material={accentMat} position-y={0.545} rotation-x={Math.PI / 2}>
-              <torusGeometry args={[0.15, 0.044, 12, 24]} />
+            <mesh material={accentMat} position-y={0.535} rotation-x={Math.PI / 2}>
+              <torusGeometry args={[0.142, 0.045, 12, 24]} />
             </mesh>
-            <group position={[0.095, 0.525, 0.155]} rotation={[0.15, -0.2, 0.24]}>
+            <group position={[0.095, 0.515, 0.155]} rotation={[0.15, -0.2, 0.24]}>
               <mesh geometry={getScarfTieGeometry()} material={accentMat} />
             </group>
           </group>
@@ -917,7 +1137,7 @@ export function ChibiFigure({
 
         {/* Professor's sculpted bowtie */}
         {char.accessory === 'glasses' && (
-          <group position={[0, 0.52, 0.155]}>
+          <group position={[0, 0.515, 0.155]}>
             {[-1, 1].map((side) => (
               <mesh key={side} material={accentMat} position={[side * 0.042, 0, 0]} rotation-z={side * 0.28} scale={[1.2, 0.85, 0.55]}>
                 <sphereGeometry args={[0.034, 12, 10]} />
@@ -938,43 +1158,49 @@ export function ChibiFigure({
             <cylinderGeometry args={[0.048, 0.048, 0.01, 16]} />
           </mesh>
         </group>
-      </group>
 
-      {/* Smooth sculpted species head */}
-      <group ref={headRef} position-y={isSitting ? 0.7 : 0.75}>
-        <mesh geometry={headGeo} material={coatMat} castShadow receiveShadow />
+        {/* Smooth sculpted species head anchored seamlessly atop neck */}
+        <group ref={headRef} position={[0, isSitting ? 0.61 : 0.65, 0]}>
+          <mesh geometry={headGeo} material={coatMat} castShadow receiveShadow />
 
-        <AnimalEars species={species} coatMat={coatMat} />
-        <HeadAccessory accessory={char.accessory} accent={char.accent} species={species} />
-        <AnimalMuzzle species={species} coatColor={coatColor} />
+          <AnimalEars species={species} coatMat={coatMat} />
+          <HeadAccessory accessory={char.accessory} accent={char.accent} species={species} />
+          <AnimalMuzzle species={species} coatColor={coatColor} />
 
-        {/* Glossy clearcoat-feel eyes & soft blush cheeks */}
-        {[-1, 1].map((side, i) => (
-          <group key={side}>
-            <group
-              ref={(node) => {
-                eyeRefs.current[i] = node;
-              }}
-              position={[side * eyeX, eyeY, eyeZ]}
-              rotation-y={side * 0.18}
-            >
-              <mesh material={eyeMat} rotation-y={-Math.PI / 2} scale={[0.38, 1.08, 1]}>
-                <sphereGeometry args={[eyeRadius, 20, 16]} />
+          {/* Glossy clearcoat-feel anime eyes & soft blush cheeks */}
+          {[-1, 1].map((side, i) => (
+            <group key={side}>
+              <group
+                ref={(node) => {
+                  eyeRefs.current[i] = node;
+                }}
+                position={[side * eyeX, eyeY, eyeZ]}
+                rotation-y={side * 0.18}
+              >
+                <mesh material={eyeMat} rotation-y={-Math.PI / 2} scale={[0.38, 1.08, 1]}>
+                  <sphereGeometry args={[eyeRadius, 22, 18]} />
+                </mesh>
+              </group>
+
+              <mesh
+                material={getBlushMaterial()}
+                position={[side * (species === 'frog' ? 0.21 : 0.192), -0.065, 0.232]}
+                rotation-y={side * 0.36}
+                scale={[1.3, 0.72, 0.35]}
+              >
+                <sphereGeometry args={[0.046, 14, 10]} />
               </mesh>
             </group>
+          ))}
 
-            <mesh
-              material={getBlushMaterial()}
-              position={[side * (species === 'frog' ? 0.21 : 0.195), -0.065, 0.228]}
-              rotation-y={side * 0.36}
-              scale={[1.3, 0.72, 0.32]}
-            >
-              <sphereGeometry args={[0.044, 12, 10]} />
-            </mesh>
-          </group>
-        ))}
-
-        <MouthShape mouth={char.mouth} species={species} laughing={isLaughing} />
+          <MouthShape
+            mouth={char.mouth}
+            species={species}
+            laughing={showLaughPose || activeCapturePose === 'throw'}
+            surprised={activeCapturePose === 'twirl_victim' || activeCapturePose === 'flail'}
+            grinning={activeCapturePose === 'twirl_attacker' || activeCapturePose === 'grab'}
+          />
+        </group>
       </group>
     </group>
   );

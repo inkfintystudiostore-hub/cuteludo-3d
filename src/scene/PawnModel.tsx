@@ -11,7 +11,7 @@ import { useAnimations, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { TEAM_COLORS, type TeamId } from '../engine/boardMap';
-import { ChibiFigure, type PicnicActivity } from './ChibiFigure';
+import { ChibiFigure, type CapturePose, type PicnicActivity } from './ChibiFigure';
 import { applyAnimeToon } from './shaders/animeToonMaterial';
 
 /** Animation clips a pawn model may provide. Missing clips fall back to Idle, then to none. */
@@ -109,7 +109,7 @@ function GltfFigure({ url, team, clip }: { url: string; team: TeamId; clip: Pawn
   );
 }
 
-function ResolvedFigure({ team, slot, clip, holdingCup, isMovable, isHovered, isSitting, picnicActivity, finalRank, isLastPlace, isLaughing, isDizzy }: PawnModelProps) {
+function ResolvedFigure({ team, slot, clip, holdingCup, isMovable, isHovered, isSitting, picnicActivity, finalRank, isLastPlace, isLaughing, isDizzy, capturePose }: PawnModelProps) {
   const url = use(resolveModelUrl(team, slot));
   return url ? (
     <GltfFigure url={url} team={team} clip={clip} />
@@ -126,6 +126,7 @@ function ResolvedFigure({ team, slot, clip, holdingCup, isMovable, isHovered, is
       isLastPlace={isLastPlace}
       isLaughing={isLaughing}
       isDizzy={isDizzy}
+      capturePose={capturePose}
     />
   );
 }
@@ -145,6 +146,7 @@ interface PawnModelProps {
   isLastPlace?: boolean;
   isLaughing?: boolean;
   isDizzy?: boolean;
+  capturePose?: CapturePose;
 }
 
 export function PawnModel(props: PawnModelProps) {
@@ -161,6 +163,7 @@ export function PawnModel(props: PawnModelProps) {
       isLastPlace={props.isLastPlace}
       isLaughing={props.isLaughing}
       isDizzy={props.isDizzy}
+      capturePose={props.capturePose}
     />
   );
   return (

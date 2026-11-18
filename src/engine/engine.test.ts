@@ -24,16 +24,36 @@ import {
   rollSmartDie,
   type GameState,
 } from './ludoRules';
-import { useGameStore } from './gameStore';
-import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
-import { buildRoomShareUrl, formatRoomCode, generateRoomCode, parseRoomCodeInput, resolveShareBaseUrl } from './roomCode';
+import { EMOTE_COOLDOWN_MS, SIMULATION_SPEEDS, useGameStore } from './gameStore';
 import {
+  BOT_TURN_FALLBACK_MS,
+  DISCONNECTED_TURN_WAIT_MS,
+  GAME_OVER_ROOM_CLOSE_MS,
+  ROOM_EMOTE_IDS,
+  TURN_TIMEOUT_MS,
+} from './multiplayerProtocol';
+import { EMOTES, getEmoteAspect } from '../scene/emoteMedia';
+import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
+import {
+  buildRoomShareUrl,
+  buildStandaloneAppUrl,
+  formatRoomCode,
+  generateRoomCode,
+  isEmbeddedInIframe,
+  parseRoomCodeInput,
+  resolveShareBaseUrl,
+} from './roomCode';
+import {
+  EMPTY_ROOM_CLOSE_MS,
   LOBBY_RECLAIM_STALE_MS,
   LOBBY_RECONNECT_GRACE_MS,
   ROOM_IDLE_TTL_MS,
   createRoomRecord,
   disconnectPlayer,
   handleRoomAction,
+  handleTurnTimeout,
+  isRoomClosedAfterGameOver,
+  isRoomClosedWhenEmpty,
   isRoomCodeOccupied,
   isRoomExpired,
   joinRoom,
@@ -537,6 +557,11 @@ describe('gameStore enhancements', () => {
 });
 
 describe('multiplayer roomLogic', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    useGameStore.getState().exitToHome();
+  });
+
   it('assigns seats with player names, updates names/modes, prevents out-of-turn rolls, and runs authoritative moves', () => {
     let room = createRoomRecord('482910375', '4P_FFA');
     room = joinRoom(room, 'host-1', 'Aman');
@@ -573,7 +598,7 @@ describe('multiplayer roomLogic', () => {
     // Host rolls an authoritative 6 (random = 0.99 -> floor(0.99 * 6) + 1 = 6).
     const rollSix = handleRoomAction(room, 'host-1', { type: 'roll' }, () => 0.99);
     room = rollSix.record;
-    expect(rollSix.broadcast).toEqual([{ type: 'roll', value: 6, team: 'PINK' }]);
+    expect(rollSix.broadcast).toMatchObject([{ type: 'roll', value: 6, team: 'PINK' }]);
     expect(room.legalMoves.length).toBe(4);
 
     // Illegal move rejected.
@@ -583,7 +608,7 @@ describe('multiplayer roomLogic', () => {
     // Legal move commits and broadcasts cleanly.
     const goodMove = handleRoomAction(room, 'host-1', { type: 'move', pawnId: 'PINK-0' });
     room = goodMove.record;
-    expect(goodMove.broadcast).toEqual([{ type: 'move', pawnId: 'PINK-0', team: 'PINK' }]);
+    expect(goodMove.broadcast).toMatchObject([{ type: 'move', pawnId: 'PINK-0', team: 'PINK' }]);
     expect(room.game.pawns.find((p) => p.id === 'PINK-0')?.progress).toBe(0);
 
     // Disconnecting after match start preserves seat for reconnect.
@@ -801,5 +826,514 @@ describe('multiplayer roomLogic', () => {
     expect(useGameStore.getState().cameraResetTick).toBe(baselineTick + 1);
     useGameStore.getState().setChatOpen(false);
     expect(useGameStore.getState().cameraResetTick).toBe(baselineTick + 1);
+  });
+
+  it('queues out-of-phase 2P remote rolls, moves, and snapshots without desyncing Yellow/Pink turns', () => {
+    vi.useFakeTimers();
+    let room = createRoomRecord('246813579', '2P_COUPLES');
+    room = joinRoom(room, 'host-pink', 'Aman');
+    room = joinRoom(room, 'guest-yellow', 'Priya');
+    room = handleRoomAction(room, 'host-pink', { type: 'start', mode: '2P_COUPLES' }).record;
+
+    const store = useGameStore.getState();
+    store.syncRoomSnapshot(snapshotForPlayer(room, 'guest-yellow'));
+    expect(useGameStore.getState().game.currentTeam).toBe('PINK');
+
+    // Pink rolls a 2 (NO_MOVES -> server advances immediately to YELLOW).
+    const pinkMiss = handleRoomAction(room, 'host-pink', { type: 'roll' }, () => 0.2);
+    room = pinkMiss.record;
+    const pinkRollMsg = pinkMiss.broadcast[0];
+    expect(pinkRollMsg.type).toBe('roll');
+    if (pinkRollMsg.type !== 'roll') return;
+    expect(room.game.currentTeam).toBe('YELLOW');
+
+    // Guest client plays Pink's roll, enters NO_MOVES passTimer; BEFORE passTimer fires, Yellow rolls 6 and spawns YELLOW-0!
+    store.playRemoteRoll(pinkRollMsg.value, {
+      team: pinkRollMsg.team,
+      seq: pinkRollMsg.seq,
+      game: pinkRollMsg.game,
+      legalMoves: pinkRollMsg.legalMoves,
+    });
+    const rollId1 = useGameStore.getState().activeRoll!.id;
+    store.completeRoll(rollId1); // Now inside NO_MOVES passTimer (hasPendingPass = true, currentTeam still PINK!)
+
+    const yellowSix = handleRoomAction(room, 'guest-yellow', { type: 'roll' }, () => 0.99);
+    room = yellowSix.record;
+    const yellowRollMsg = yellowSix.broadcast[0];
+    if (yellowRollMsg.type !== 'roll') return;
+
+    const yellowMove = handleRoomAction(room, 'guest-yellow', { type: 'move', pawnId: 'YELLOW-0' });
+    room = yellowMove.record;
+    const yellowMoveMsg = yellowMove.broadcast[0];
+    if (yellowMoveMsg.type !== 'move') return;
+
+    // Both Yellow's roll and move arrive while client is still in passTimer / activeRoll!
+    store.playRemoteRoll(yellowRollMsg.value, {
+      team: yellowRollMsg.team,
+      seq: yellowRollMsg.seq,
+      game: yellowRollMsg.game,
+      legalMoves: yellowRollMsg.legalMoves,
+    });
+    store.playRemoteMove(yellowMoveMsg.pawnId, {
+      team: yellowMoveMsg.team,
+      seq: yellowMoveMsg.seq,
+      game: yellowMoveMsg.game,
+      legalMoves: yellowMoveMsg.legalMoves,
+    });
+
+    // Advance timers through passTimer (560ms) -> queued roll watchdog -> queued move watchdog.
+    vi.advanceTimersByTime(600);
+    expect(useGameStore.getState().activeRoll?.value).toBe(6);
+    vi.advanceTimersByTime(2000);
+    expect(useGameStore.getState().lastEvent).not.toBeNull();
+    vi.advanceTimersByTime(3000);
+
+    // Client converges cleanly to exact server state: YELLOW's bonus roll after spawning YELLOW-0!
+    expect(useGameStore.getState().isAnimating).toBe(false);
+    expect(useGameStore.getState().game.currentTeam).toBe(room.game.currentTeam);
+    expect(useGameStore.getState().game.phase).toBe(room.game.phase);
+    expect(useGameStore.getState().game.pawns.find((p) => p.id === 'YELLOW-0')?.progress).toBe(0);
+
+    // Also verify a snapshot arriving mid-animation is deferred and applied once animation completes.
+    const nextRoll = handleRoomAction(room, 'guest-yellow', { type: 'roll' }, () => 0.2);
+    room = nextRoll.record;
+    const nextRollMsg = nextRoll.broadcast[0];
+    if (nextRollMsg.type !== 'roll') return;
+
+    store.playRemoteRoll(nextRollMsg.value, {
+      team: nextRollMsg.team,
+      seq: nextRollMsg.seq,
+      game: nextRollMsg.game,
+      legalMoves: nextRollMsg.legalMoves,
+    });
+    expect(useGameStore.getState().isAnimating).toBe(true);
+
+    // Advance server: Yellow finishes moving YELLOW-0 (turn -> PINK), then Pink rolls 6 while client is still animating!
+    room = handleRoomAction(room, 'guest-yellow', { type: 'move', pawnId: 'YELLOW-0' }).record;
+    const pinkNext = handleRoomAction(room, 'host-pink', { type: 'roll' }, () => 0.99);
+    room = pinkNext.record;
+    store.syncRoomSnapshot(snapshotForPlayer(room, 'guest-yellow'));
+
+    // Finish local timers -> deferred snapshot reconciles exact server state (PINK MOVE with 6).
+    vi.advanceTimersByTime(4000);
+    expect(useGameStore.getState().isAnimating).toBe(false);
+    expect(useGameStore.getState().game.currentTeam).toBe('PINK');
+    expect(useGameStore.getState().game.phase).toBe('MOVE');
+    expect(useGameStore.getState().legalMoves).toHaveLength(4);
+  });
+
+  it('detects iframe embeds and builds clean standalone fullscreen launch URLs', () => {
+    vi.stubGlobal('window', {
+      self: { id: 'child' },
+      top: { id: 'parent' },
+      location: {
+        origin: 'https://chibi-ludo-3d.inkfintystudio-store.workers.dev',
+        pathname: '/',
+        search: '?embed=1&parentUrl=https%3A%2F%2Finkfinitystudio.store%2Fgame-room&room=482-910-375',
+        href: 'https://chibi-ludo-3d.inkfintystudio-store.workers.dev/?embed=1&parentUrl=https%3A%2F%2Finkfinitystudio.store%2Fgame-room&room=482-910-375',
+      },
+    });
+    try {
+      expect(isEmbeddedInIframe()).toBe(true);
+      expect(buildStandaloneAppUrl()).toBe('https://chibi-ludo-3d.inkfintystudio-store.workers.dev/?room=482910375');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('supports selectable simulation speeds (1x, 1.25x, 1.5x, 2x)', () => {
+    expect(SIMULATION_SPEEDS).toEqual([1, 1.25, 1.5, 2]);
+    const store = useGameStore.getState();
+    store.startMatch({ mode: '4P_FFA', simulation: true, simulationSpeed: 1.5, room: null });
+    expect(useGameStore.getState().simulation).toBe(true);
+    expect(useGameStore.getState().simulationSpeed).toBe(1.5);
+
+    store.setSimulationSpeed(2);
+    expect(useGameStore.getState().simulationSpeed).toBe(2);
+    store.setSimulationSpeed(1);
+    expect(useGameStore.getState().simulationSpeed).toBe(1);
+  });
+
+  it('enforces a 5-second cooldown and lets each GIF play its full timeline without a duration cap', () => {
+    vi.useFakeTimers();
+    const store = useGameStore.getState();
+    store.startMatch({ mode: '2P_COUPLES', vsAi: true, room: null });
+
+    expect(EMOTE_COOLDOWN_MS).toBe(5000);
+    expect(store.sendEmote('dogdance')).toBe(true);
+    const firstOverlay = useGameStore.getState().yardEmotes.PINK;
+    expect(firstOverlay?.emote).toBe('dogdance');
+    // Full 12s GIF duration is preserved with no artificial 3s cap.
+    expect(firstOverlay!.expiresAt - firstOverlay!.startedAt).toBe(12000);
+
+    // Second send within 5s cooldown is blocked.
+    vi.advanceTimersByTime(3000);
+    expect(store.sendEmote('angry')).toBe(false);
+    expect(useGameStore.getState().yardEmotes.PINK?.emote).toBe('dogdance');
+
+    // After full 5000ms cooldown, another GIF can be sent cleanly.
+    vi.advanceTimersByTime(2000);
+    expect(store.sendEmote('dogsuspect')).toBe(true);
+    const secondOverlay = useGameStore.getState().yardEmotes.PINK;
+    expect(secondOverlay?.emote).toBe('dogsuspect');
+    expect(secondOverlay!.expiresAt - secondOverlay!.startedAt).toBe(7400);
+  });
+
+  it('registers all 16 reaction emotes in protocol, media list, and room emote validation', () => {
+    expect(ROOM_EMOTE_IDS).toHaveLength(16);
+    expect(EMOTES.map((e) => e.id)).toEqual([...ROOM_EMOTE_IDS]);
+
+    let room = createRoomRecord('333444555', '2P_COUPLES');
+    room = joinRoom(room, 'host-1', 'Aman');
+    for (const id of ROOM_EMOTE_IDS) {
+      const res = handleRoomAction(room, 'host-1', { type: 'emote', emote: id });
+      expect(res.broadcast).toEqual([{ type: 'emote', emote: id, fromTeam: 'PINK' }]);
+    }
+  });
+
+  it('auto-rolls after 20s of inactivity (and auto-moves if stalled in MOVE) while syncing presence', () => {
+    const t0 = 1_700_000_000_000;
+    expect(TURN_TIMEOUT_MS).toBe(20_000);
+
+    let room = createRoomRecord('666777888', '2P_COUPLES');
+    room = joinRoom(room, 'host-1', 'Aman', t0);
+    room = joinRoom(room, 'guest-2', 'Priya', t0 + 500);
+    room = handleRoomAction(room, 'host-1', { type: 'start', mode: '2P_COUPLES' }, Math.random, t0 + 1000).record;
+
+    // Presence is tracked on every seat throughout the game.
+    expect(snapshotForPlayer(room, 'host-1', t0 + 1000).seats.every((s) => s.connected)).toBe(true);
+    room = disconnectPlayer(room, 'guest-2', t0 + 2000);
+    expect(snapshotForPlayer(room, 'host-1', t0 + 2000).seats.find((s) => s.team === 'YELLOW')?.connected).toBe(false);
+    room = joinRoom(room, 'guest-2', 'Priya', t0 + 3000);
+    expect(snapshotForPlayer(room, 'host-1', t0 + 3000).seats.find((s) => s.team === 'YELLOW')?.connected).toBe(true);
+
+    // Before 20s deadline, handleTurnTimeout does nothing.
+    expect(handleTurnTimeout(room, t0 + 1000 + TURN_TIMEOUT_MS - 1)).toBeNull();
+
+    // At 20s deadline in ROLL phase, server auto-rolls a 6 (random=0.99) -> enters MOVE phase with a fresh 20s deadline.
+    const autoRoll = handleTurnTimeout(room, t0 + 1000 + TURN_TIMEOUT_MS, () => 0.99);
+    expect(autoRoll).not.toBeNull();
+    room = autoRoll!.record;
+    expect(autoRoll!.broadcast[0]).toMatchObject({
+      type: 'roll',
+      value: 6,
+      team: 'PINK',
+      turnRemainingMs: TURN_TIMEOUT_MS,
+    });
+    expect(room.game.phase).toBe('MOVE');
+
+    // If the player still doesn't pick a pawn for another 20s, handleTurnTimeout picks a legal move automatically.
+    const autoMove = handleTurnTimeout(room, t0 + 1000 + TURN_TIMEOUT_MS * 2);
+    expect(autoMove).not.toBeNull();
+    room = autoMove!.record;
+    expect(autoMove!.broadcast[0]).toMatchObject({
+      type: 'move',
+      team: 'PINK',
+      turnRemainingMs: TURN_TIMEOUT_MS,
+    });
+    expect(room.game.phase).toBe('ROLL');
+  });
+
+  it('tracks turnDeadlineAt in gameStore for both local matches and remote snapshots', () => {
+    vi.useFakeTimers();
+    const t0 = 1_700_000_000_000;
+    vi.setSystemTime(t0);
+
+    const store = useGameStore.getState();
+    store.startMatch({ mode: '2P_COUPLES', vsAi: true, room: null });
+    expect(useGameStore.getState().turnDeadlineAt).toBe(t0 + TURN_TIMEOUT_MS);
+
+    // Pausing clears local deadline; resuming restores a fresh 20s deadline.
+    store.setPaused(true);
+    expect(useGameStore.getState().turnDeadlineAt).toBeNull();
+    vi.advanceTimersByTime(5000);
+    store.setPaused(false);
+    expect(useGameStore.getState().turnDeadlineAt).toBe(t0 + 5000 + TURN_TIMEOUT_MS);
+
+    // Remote snapshot with turnRemainingMs syncs client deadline cleanly.
+    let room = createRoomRecord('999000111', '2P_COUPLES');
+    room = joinRoom(room, 'host-1', 'Aman', t0);
+    room = joinRoom(room, 'guest-2', 'Priya', t0);
+    room = handleRoomAction(room, 'host-1', { type: 'start', mode: '2P_COUPLES' }, Math.random, t0).record;
+    store.syncRoomSnapshot(snapshotForPlayer(room, 'host-1', t0 + 4000));
+    expect(useGameStore.getState().turnDeadlineAt).toBe(t0 + 5000 + (TURN_TIMEOUT_MS - 4000));
+  });
+
+  it('preserves full uncropped natural aspect ratios for all reaction GIFs', () => {
+    expect(getEmoteAspect('minionkiss')).toBeCloseTo(200 / 112, 4);
+    expect(getEmoteAspect('dogbeach')).toBeCloseTo(192 / 128, 4);
+    expect(getEmoteAspect('grumpy')).toBeCloseTo(200 / 266, 4);
+    expect(getEmoteAspect('dogdance')).toBeCloseTo(192 / 240, 4);
+    expect(getEmoteAspect('laugh')).toBe(1);
+    expect(getEmoteAspect('doghands')).toBe(1);
+    expect(getEmoteAspect('dogshock')).toBeCloseTo(200 / 170, 4);
+    expect(getEmoteAspect('sadhamster')).toBe(1);
+    expect(getEmoteAspect('huskydance')).toBeCloseTo(498 / 332, 4);
+  });
+
+  it('waits 15s on disconnected player 1st chance, activates AI bot on 2nd chance, and resumes from bot state on reconnect', () => {
+    const t0 = 1_700_000_000_000;
+    expect(DISCONNECTED_TURN_WAIT_MS).toBe(15_000);
+
+    let room = createRoomRecord('555666777', '2P_COUPLES');
+    room = joinRoom(room, 'host-1', 'Aman', t0, 'device-host');
+    room = joinRoom(room, 'guest-2', 'Priya', t0 + 200, 'device-guest');
+    room = handleRoomAction(room, 'host-1', { type: 'start', mode: '2P_COUPLES' }, Math.random, t0 + 500).record;
+
+    // Guest leaves/disconnects during Host's turn.
+    room = disconnectPlayer(room, 'guest-2', t0 + 1000);
+    expect(room.seats.find((s) => s.team === 'YELLOW')?.connected).toBe(false);
+    expect(room.seats.find((s) => s.team === 'YELLOW')?.botTakeover).toBe(false);
+
+    // Host rolls a 2 (NO_MOVES) -> turn passes to disconnected Guest (1st chance).
+    const hostRoll = handleRoomAction(room, 'host-1', { type: 'roll' }, () => 0.2, t0 + 2000);
+    room = hostRoll.record;
+    expect(room.game.currentTeam).toBe('YELLOW');
+    // Server waits 15s for Guest's 1st chance before missing it.
+    expect(room.turnDeadlineAt).toBe(t0 + 2000 + DISCONNECTED_TURN_WAIT_MS);
+    expect(handleTurnTimeout(room, t0 + 2000 + DISCONNECTED_TURN_WAIT_MS - 1)).toBeNull();
+
+    // At 15s, Guest misses 1st chance: turn skips back to Host and AI bot takeover activates for 2nd+ chances.
+    const missedFirst = handleTurnTimeout(room, t0 + 2000 + DISCONNECTED_TURN_WAIT_MS);
+    expect(missedFirst).not.toBeNull();
+    expect(missedFirst!.broadcastSnapshots).toBe(true);
+    room = missedFirst!.record;
+    expect(room.game.currentTeam).toBe('PINK');
+    expect(room.game.phase).toBe('ROLL');
+    expect(room.seats.find((s) => s.team === 'YELLOW')).toMatchObject({
+      occupant: 'human',
+      connected: false,
+      missedTurns: 1,
+      botTakeover: true,
+    });
+
+    // Host rolls a 2 (NO_MOVES) -> turn returns to Guest (2nd chance!).
+    room = handleRoomAction(room, 'host-1', { type: 'roll' }, () => 0.2, t0 + 20_000).record;
+    expect(room.game.currentTeam).toBe('YELLOW');
+    expect(room.turnDeadlineAt).toBe(t0 + 20_000 + BOT_TURN_FALLBACK_MS);
+
+    // Host now drives Guest's AI bot turn (rolls 6 and spawns YELLOW-0).
+    const botRoll = handleRoomAction(room, 'host-1', { type: 'roll' }, () => 0.99, t0 + 20_500);
+    expect(botRoll.broadcast[0]).toMatchObject({ type: 'roll', value: 6, team: 'YELLOW' });
+    room = botRoll.record;
+    expect(room.game.phase).toBe('MOVE');
+
+    const botMove = handleRoomAction(room, 'host-1', { type: 'move', pawnId: 'YELLOW-0' }, Math.random, t0 + 21_000);
+    expect(botMove.broadcast[0]).toMatchObject({ type: 'move', pawnId: 'YELLOW-0', team: 'YELLOW' });
+    room = botMove.record;
+    // Bot earned bonus roll on 6 and YELLOW-0 is now on the track (progress 0).
+    expect(room.game.currentTeam).toBe('YELLOW');
+    expect(room.game.phase).toBe('ROLL');
+    expect(room.game.pawns.find((p) => p.id === 'YELLOW-0')?.progress).toBe(0);
+
+    // Guest reconnects (even from a fresh tab using same deviceId): AI bot stops and Guest resumes from bot's state!
+    const rejoin = handleRoomAction(
+      room,
+      'guest-2-newtab',
+      { type: 'join', playerId: 'guest-2-newtab', name: 'Priya', deviceId: 'device-guest' },
+      Math.random,
+      t0 + 25_000,
+    );
+    room = rejoin.record;
+    const yellowSeat = room.seats.find((s) => s.team === 'YELLOW');
+    expect(yellowSeat).toMatchObject({
+      occupant: 'human',
+      playerId: 'guest-2-newtab',
+      connected: true,
+    });
+    expect(yellowSeat?.botTakeover).toBeUndefined();
+    expect(yellowSeat?.missedTurns).toBeUndefined();
+    // Exact progress left by AI bot is preserved and Guest gets full turn timer to continue.
+    expect(room.game.pawns.find((p) => p.id === 'YELLOW-0')?.progress).toBe(0);
+    expect(room.turnDeadlineAt).toBe(t0 + 25_000 + TURN_TIMEOUT_MS);
+
+    // Host can no longer act for Guest once Guest reconnected; Guest controls their own turn again.
+    const hostBlocked = handleRoomAction(room, 'host-1', { type: 'roll' }, () => 0.5, t0 + 25_500);
+    expect(hostBlocked.reply).toEqual({ type: 'error', message: 'Not your turn to roll.' });
+    const guestRoll = handleRoomAction(room, 'guest-2-newtab', { type: 'roll' }, () => 0.2, t0 + 26_000);
+    expect(guestRoll.broadcast[0]).toMatchObject({ type: 'roll', team: 'YELLOW' });
+  });
+
+  it('allows a player in a 4-player match to leave mid-game and rejoin via link from any browser to resume after AI takeover', () => {
+    const t0 = 1_700_100_000_000;
+    let room = createRoomRecord('777888999', '4P_FFA');
+    room = joinRoom(room, 'p1', 'Aman', t0, 'dev-1');
+    room = joinRoom(room, 'p2', 'Neha', t0 + 100, 'dev-2');
+    room = joinRoom(room, 'p3', 'Rohan', t0 + 200, 'dev-3');
+    room = joinRoom(room, 'p4', 'Kiran', t0 + 300, 'dev-4');
+    room = handleRoomAction(room, 'p1', { type: 'start', mode: '4P_FFA' }, Math.random, t0 + 400).record;
+
+    // Player 2 (CYAN / Neha) leaves mid-game -> AI takeover activates cleanly.
+    room = handleRoomAction(room, 'p2', { type: 'leave' }, Math.random, t0 + 1000).record;
+    expect(room.seats.find((s) => s.team === 'CYAN')?.connected).toBe(false);
+    // Simulate AI having already played CYAN's piece onto track (progress 12).
+    room = {
+      ...room,
+      seats: room.seats.map((s) => (s.team === 'CYAN' ? { ...s, botTakeover: true, missedTurns: 1 } : s)),
+      game: place(room.game, { 'CYAN-0': 12 }),
+    };
+
+    // Player opens the room link in another browser (different playerId & deviceId) and reclaims their exact seat.
+    room = joinRoom(room, 'p2-mobile-chrome', 'neha', t0 + 5000, 'dev-different');
+    const cyanSeat = room.seats.find((s) => s.team === 'CYAN');
+    expect(cyanSeat).toMatchObject({
+      occupant: 'human',
+      playerId: 'p2-mobile-chrome',
+      connected: true,
+    });
+    expect(cyanSeat?.botTakeover).toBeUndefined();
+    expect(room.game.pawns.find((p) => p.id === 'CYAN-0')?.progress).toBe(12);
+
+    // Even if only 1 human is disconnected and rejoins with a blank/default name, they still reclaim their seat.
+    room = leaveRoom(room, 'p2-mobile-chrome', t0 + 6000);
+    room = joinRoom(room, 'p2-webview', undefined, t0 + 7000, 'dev-webview');
+    expect(room.seats.find((s) => s.team === 'CYAN')).toMatchObject({
+      playerId: 'p2-webview',
+      connected: true,
+    });
+  });
+
+  it('auto-closes finished Play With Friends rooms after 1 minute unless reset beforehand', () => {
+    const t0 = 1_700_200_000_000;
+    expect(GAME_OVER_ROOM_CLOSE_MS).toBe(60_000);
+
+    let room = createRoomRecord('999000111', '2P_COUPLES');
+    room = joinRoom(room, 'host-1', 'Aman', t0, 'dev-host');
+    room = joinRoom(room, 'guest-2', 'Priya', t0 + 100, 'dev-guest');
+    room = handleRoomAction(room, 'host-1', { type: 'start', mode: '2P_COUPLES' }, Math.random, t0 + 200).record;
+
+    // Put PINK 1 step away from finishing all 4 pawns in Home.
+    room = {
+      ...room,
+      game: {
+        ...place(room.game, { 'PINK-0': 56, 'PINK-1': 56, 'PINK-2': 56, 'PINK-3': 55 }),
+        currentTeam: 'PINK',
+        phase: 'MOVE',
+        dice: 1,
+      },
+      legalMoves: ['PINK-3'],
+    };
+
+    const winAction = handleRoomAction(room, 'host-1', { type: 'move', pawnId: 'PINK-3' }, Math.random, t0 + 1000);
+    room = winAction.record;
+    expect(winAction.broadcastSnapshots).toBe(true);
+    expect(room.game.phase).toBe('GAME_OVER');
+    expect(room.closeAt).toBe(t0 + 1000 + 60_000);
+    expect(snapshotForPlayer(room, 'host-1', t0 + 11_000).roomCloseRemainingMs).toBe(50_000);
+
+    expect(isRoomClosedAfterGameOver(room, t0 + 60_999)).toBe(false);
+    expect(isRoomExpired(room, t0 + 60_999)).toBe(false);
+    expect(isRoomClosedAfterGameOver(room, t0 + 61_000)).toBe(true);
+    expect(isRoomExpired(room, t0 + 61_000)).toBe(true);
+
+    // Host hitting Play Again before 1 minute expires clears the pending auto-close timer.
+    const resetRes = handleRoomAction(room, 'host-1', { type: 'reset' }, Math.random, t0 + 15_000);
+    expect(resetRes.record.closeAt).toBeUndefined();
+    expect(resetRes.record.game.phase).toBe('ROLL');
+    expect(isRoomClosedAfterGameOver(resetRes.record, t0 + 90_000)).toBe(false);
+  });
+
+  it('recovers cleanly when a remote roll mismatches phase without leaving the queue or dice stuck', () => {
+    const store = useGameStore.getState();
+    const baseGame = createGame('2P_COUPLES');
+    store.syncRoomSnapshot({
+      code: '123456789',
+      mode: '2P_COUPLES',
+      hostId: 'host-1',
+      started: true,
+      seats: [
+        { team: 'PINK', occupant: 'human', playerId: 'host-1', connected: true, label: 'Pink (Host)' },
+        { team: 'YELLOW', occupant: 'human', playerId: 'guest-2', connected: true, label: 'Yellow' },
+      ],
+      game: baseGame,
+      legalMoves: [],
+      seq: 1,
+      turnRemainingMs: 18_000,
+      yourPlayerId: 'host-1',
+      yourTeam: 'PINK',
+      isHost: true,
+    });
+
+    // Inject a mismatched remote roll without embedded game snapshot (wrong team for seq 2).
+    useGameStore.getState().playRemoteRoll(4, { team: 'YELLOW', seq: 2 });
+    expect(useGameStore.getState().waitingRollAck).toBe(false);
+    expect(useGameStore.getState().isAnimating).toBe(false);
+
+    // Subsequent authoritative snapshot at seq 3 must apply immediately and not remain blocked by stale queue items.
+    const yellowTurnGame: GameState = { ...baseGame, currentTeam: 'YELLOW', phase: 'ROLL', dice: 2 };
+    useGameStore.getState().syncRoomSnapshot({
+      code: '123456789',
+      mode: '2P_COUPLES',
+      hostId: 'host-1',
+      started: true,
+      seats: [
+        { team: 'PINK', occupant: 'human', playerId: 'host-1', connected: true, label: 'Pink (Host)' },
+        { team: 'YELLOW', occupant: 'human', playerId: 'guest-2', connected: true, label: 'Yellow' },
+      ],
+      game: yellowTurnGame,
+      legalMoves: [],
+      seq: 3,
+      turnRemainingMs: 19_000,
+      yourPlayerId: 'host-1',
+      yourTeam: 'PINK',
+      isHost: true,
+    });
+
+    expect(useGameStore.getState().game.currentTeam).toBe('YELLOW');
+    expect(useGameStore.getState().isAnimating).toBe(false);
+    useGameStore.getState().exitToHome();
+  });
+
+  it('closes private rooms automatically when all players leave the game or disconnect', () => {
+    const t0 = 1_700_300_000_000;
+
+    // 1. Lobby: stays open while at least one player remains, closes when the last player leaves.
+    let lobby = createRoomRecord('111222333', '4P_FFA');
+    lobby = joinRoom(lobby, 'host-1', 'Aman', t0, 'dev-host');
+    lobby = joinRoom(lobby, 'guest-2', 'Priya', t0 + 100, 'dev-guest');
+
+    const firstLobbyLeave = handleRoomAction(lobby, 'guest-2', { type: 'leave' }, Math.random, t0 + 200);
+    expect(firstLobbyLeave.closeRoom).toBe(false);
+    expect(firstLobbyLeave.persist).toBe(true);
+
+    const lastLobbyLeave = handleRoomAction(firstLobbyLeave.record, 'host-1', { type: 'leave' }, Math.random, t0 + 300);
+    expect(lastLobbyLeave.closeRoom).toBe(true);
+    expect(lastLobbyLeave.persist).toBe(false);
+
+    // 2. Started game with multiple humans: stays open while one human remains, closes when the last human leaves.
+    let started = createRoomRecord('444555666', '4P_FFA');
+    started = joinRoom(started, 'host-1', 'Aman', t0, 'dev-host');
+    started = joinRoom(started, 'guest-2', 'Priya', t0 + 100, 'dev-guest');
+    started = handleRoomAction(started, 'host-1', { type: 'start', mode: '4P_FFA' }, Math.random, t0 + 200).record;
+
+    const firstGameLeave = handleRoomAction(started, 'guest-2', { type: 'leave' }, Math.random, t0 + 300);
+    expect(firstGameLeave.closeRoom).toBe(false);
+    expect(firstGameLeave.persist).toBe(true);
+    expect(firstGameLeave.broadcastSnapshots).toBe(true);
+
+    const lastGameLeave = handleRoomAction(firstGameLeave.record, 'host-1', { type: 'leave' }, Math.random, t0 + 400);
+    expect(lastGameLeave.closeRoom).toBe(true);
+    expect(lastGameLeave.persist).toBe(false);
+    expect(lastGameLeave.broadcastSnapshots).toBe(false);
+
+    // 3. Started game with 1 human + AI bots: closes immediately when that human leaves.
+    let soloStarted = createRoomRecord('777888999', '4P_FFA');
+    soloStarted = joinRoom(soloStarted, 'host-1', 'Aman', t0, 'dev-host');
+    soloStarted = handleRoomAction(soloStarted, 'host-1', { type: 'start', mode: '4P_FFA' }, Math.random, t0 + 200).record;
+
+    const soloLeave = handleRoomAction(soloStarted, 'host-1', { type: 'leave' }, Math.random, t0 + 300);
+    expect(soloLeave.closeRoom).toBe(true);
+    expect(soloLeave.persist).toBe(false);
+
+    // 4. Unexpected disconnects (closing tabs without clicking Leave): room stays open for reconnect grace, then expires.
+    let abandoned = disconnectPlayer(started, 'host-1', t0 + 500);
+    abandoned = disconnectPlayer(abandoned, 'guest-2', t0 + 600);
+    abandoned = { ...abandoned, lastActiveAt: t0 + 600 };
+
+    expect(isRoomClosedWhenEmpty(abandoned, t0 + 600 + EMPTY_ROOM_CLOSE_MS - 1)).toBe(false);
+    expect(isRoomExpired(abandoned, t0 + 600 + EMPTY_ROOM_CLOSE_MS - 1)).toBe(false);
+    expect(isRoomClosedWhenEmpty(abandoned, t0 + 600 + EMPTY_ROOM_CLOSE_MS)).toBe(true);
+    expect(isRoomExpired(abandoned, t0 + 600 + EMPTY_ROOM_CLOSE_MS)).toBe(true);
+    expect(isRoomCodeOccupied(abandoned, t0 + 600 + EMPTY_ROOM_CLOSE_MS)).toBe(false);
   });
 });

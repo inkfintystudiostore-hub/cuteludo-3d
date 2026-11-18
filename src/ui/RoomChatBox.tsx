@@ -6,7 +6,7 @@ import { SendIcon } from './Icons';
 export function RoomChatBox({ compact = false }: { compact?: boolean }) {
   const messages = useGameStore((s) => s.chatMessages);
   const sendChat = useGameStore((s) => s.sendChat);
-  const online = useGameStore((s) => Boolean(s.room?.online));
+  const online = useGameStore((s) => Boolean(s.room?.online) || (s.vsAi && Object.keys(s.botNames).length > 0));
   const [draft, setDraft] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
 

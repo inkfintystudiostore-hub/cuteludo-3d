@@ -229,6 +229,12 @@ function passTurn(state: GameState): GameState {
   return { ...state, currentTeam: nextTeam(state, state.pawns), phase: 'ROLL', sixStreak: 0 };
 }
 
+/** Skips the current team's turn and passes control in ROLL phase to the next unfinished team. */
+export function skipTurn(state: GameState): GameState {
+  if (state.phase === 'GAME_OVER') return state;
+  return { ...passTurn(state), dice: null };
+}
+
 export type RollOutcome = 'MOVE' | 'NO_MOVES' | 'THREE_SIXES';
 
 export interface RollResult {

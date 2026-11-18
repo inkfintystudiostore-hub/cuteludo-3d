@@ -126,3 +126,33 @@ export function buildRoomShareUrl(baseUrl: string, code: string): string {
   url.searchParams.set('room', cleanCode);
   return url.toString();
 }
+
+/** True when the app is running inside an iframe or explicit ?embed=1 wrapper. */
+export function isEmbeddedInIframe(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('embed') === '1') return true;
+  } catch {
+    // Ignore malformed query string.
+  }
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+/** Builds the direct standalone fullscreen tab URL, preserving any ?room= invite code. */
+export function buildStandaloneAppUrl(): string {
+  const base = resolveShareBaseUrl();
+  if (typeof window === 'undefined') return base;
+  try {
+    const target = new URL(base);
+    const room = parseRoomCodeInput(window.location.search ?? '');
+    if (room) target.searchParams.set('room', room);
+    return target.toString();
+  } catch {
+    return base;
+  }
+}

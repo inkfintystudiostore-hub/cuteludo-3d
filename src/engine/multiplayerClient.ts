@@ -3,10 +3,18 @@
  * with automatic reconnection, keepalive pings, and explicit room-leave semantics.
  */
 import { registerRoomTransport, useGameStore } from './gameStore';
+import {
+  getWalletMutationEpoch,
+  registerWalletServerSync,
+  useWalletStore,
+  type WalletPersisted,
+  type WalletServerAction,
+} from './walletStore';
 import type { GameMode } from './ludoRules';
 import type { TeamId } from './boardMap';
 import type { ClientMessage, RoomEmoteId, ServerMessage } from './multiplayerProtocol';
 import { clearRoomFromBrowserUrl, resolveEmbeddedParentUrl } from './roomCode';
+import { registerVoiceTransport, useVoiceStore } from './voiceStore';
 
 interface ActiveConnectionParams {
   code: string;
@@ -15,7 +23,8 @@ interface ActiveConnectionParams {
   playerName?: string;
 }
 
-const HEARTBEAT_INTERVAL_MS = 25_000;
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const PONG_TIMEOUT_MS = 5_000;
 const REJECTED_CLOSE_CODES = new Set([4003, 4004]);
 
 let socket: WebSocket | null = null;
@@ -24,6 +33,7 @@ let activeParams: ActiveConnectionParams | null = null;
 let intentionalClose = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+let pongTimer: ReturnType<typeof setTimeout> | undefined;
 let reconnectAttempt = 0;
 let hasConnectedOnce = false;
 let lastServerError: string | null = null;
@@ -52,7 +62,7 @@ function getWsOrigin(): string {
   return `${proto}//${window.location.host}`;
 }
 
-function getHttpOrigin(): string {
+export function getHttpOrigin(): string {
   const custom = import.meta.env.VITE_WS_URL as string | undefined;
   if (custom && custom.trim()) {
     return custom
@@ -68,11 +78,15 @@ function getHttpOrigin(): string {
 /** Requests a server-verified unused 9-digit room code from the live Worker. */
 export async function reserveUniqueRoomCode(mode: GameMode): Promise<ReserveRoomResult> {
   try {
+    const authHeaders = await getWalletAuthHeaders();
     const res = await fetch(`${getHttpOrigin()}/api/rooms/reserve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ mode }),
     });
+    if (res.status === 401) {
+      return { ok: false, error: 'Please sign in with Google to create a room.' };
+    }
     if (res.ok) {
       const contentType = res.headers.get('content-type') ?? '';
       if (contentType.includes('application/json')) {
@@ -113,6 +127,7 @@ export function savePlayerDisplayName(name: string): void {
 }
 
 let cachedPlayerId: string | null = null;
+let cachedDeviceId: string | null = null;
 
 function getPlayerId(): string {
   if (cachedPlayerId) return cachedPlayerId;
@@ -133,6 +148,25 @@ function getPlayerId(): string {
   }
 }
 
+function getDeviceId(): string {
+  if (cachedDeviceId) return cachedDeviceId;
+  const key = 'chibi-ludo-did';
+  try {
+    const existing = localStorage.getItem(key);
+    if (existing) {
+      cachedDeviceId = existing;
+      return existing;
+    }
+    const fresh = crypto.randomUUID();
+    localStorage.setItem(key, fresh);
+    cachedDeviceId = fresh;
+    return fresh;
+  } catch {
+    cachedDeviceId = getPlayerId();
+    return cachedDeviceId;
+  }
+}
+
 function send(msg: ClientMessage): void {
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(msg));
@@ -144,6 +178,8 @@ function clearTimers(): void {
   reconnectTimer = undefined;
   clearInterval(heartbeatTimer);
   heartbeatTimer = undefined;
+  clearTimeout(pongTimer);
+  pongTimer = undefined;
 }
 
 function attachLifecycleListeners(): void {
@@ -170,6 +206,8 @@ function attachLifecycleListeners(): void {
 function closeActiveSocket(sendLeave: boolean): void {
   clearInterval(heartbeatTimer);
   heartbeatTimer = undefined;
+  clearTimeout(pongTimer);
+  pongTimer = undefined;
   registerRoomTransport(null);
   if (!socket) return;
   const old = socket;
@@ -196,6 +234,7 @@ function teardownMultiplayerRoom(): void {
 }
 
 export function disconnectMultiplayerRoom(): void {
+  useVoiceStore.getState().leaveRoomVoice();
   teardownMultiplayerRoom();
   notifyParentRoomCode(null);
   clearRoomFromBrowserUrl();
@@ -211,17 +250,23 @@ export function retryMultiplayerConnection(): void {
   openSocket(activeParams);
 }
 
-function openSocket(params: ActiveConnectionParams): void {
+async function openSocket(params: ActiveConnectionParams): Promise<void> {
   clearInterval(heartbeatTimer);
   heartbeatTimer = undefined;
+  clearTimeout(pongTimer);
+  pongTimer = undefined;
   closeActiveSocket(false);
 
   lastServerError = null;
   const cleanName = (params.playerName ?? loadPlayerDisplayName()).trim().slice(0, 18);
   const playerId = getPlayerId();
+  const deviceId = getDeviceId();
+  const info = walletAuthProvider?.();
+  const token = info?.getToken ? await info.getToken() : info?.token;
   const nameParam = cleanName ? `&name=${encodeURIComponent(cleanName)}` : '';
+  const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
   const intent = params.role === 'host' ? 'create' : 'join';
-  const url = `${getWsOrigin()}/ws/room/${params.code}?pid=${encodeURIComponent(playerId)}&mode=${encodeURIComponent(params.mode)}&intent=${intent}${nameParam}`;
+  const url = `${getWsOrigin()}/ws/room/${params.code}?pid=${encodeURIComponent(playerId)}&did=${encodeURIComponent(deviceId)}&mode=${encodeURIComponent(params.mode)}&intent=${intent}${nameParam}${tokenParam}`;
 
   let ws: WebSocket;
   try {
@@ -238,7 +283,7 @@ function openSocket(params: ActiveConnectionParams): void {
     reset: () => send({ type: 'reset' }),
     resync: () => {
       const latestName = (activeParams?.playerName ?? loadPlayerDisplayName()).trim().slice(0, 18);
-      send({ type: 'join', playerId, name: latestName || undefined });
+      send({ type: 'join', playerId, name: latestName || undefined, deviceId });
     },
     emote: (emote: RoomEmoteId) => send({ type: 'emote', emote }),
     chat: (text: string) => send({ type: 'chat', text }),
@@ -251,14 +296,22 @@ function openSocket(params: ActiveConnectionParams): void {
     hasConnectedOnce = true;
     useGameStore.getState().setRoomConnectionStatus('connected', 'Connected to live Cloudflare room');
     const latestName = (activeParams?.playerName ?? loadPlayerDisplayName()).trim().slice(0, 18);
-    send({ type: 'join', playerId, name: latestName || undefined });
+    send({ type: 'join', playerId, name: latestName || undefined, deviceId });
     heartbeatTimer = setInterval(() => {
+      if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
       send({ type: 'ping' });
+      clearTimeout(pongTimer);
+      pongTimer = setTimeout(() => {
+        if (socket !== ws || intentionalClose) return;
+        retryMultiplayerConnection();
+      }, PONG_TIMEOUT_MS);
     }, HEARTBEAT_INTERVAL_MS);
   });
 
   ws.addEventListener('message', (event) => {
     if (socket !== ws) return;
+    clearTimeout(pongTimer);
+    pongTimer = undefined;
     let data: ServerMessage;
     try {
       data = JSON.parse(String(event.data)) as ServerMessage;
@@ -278,15 +331,32 @@ function openSocket(params: ActiveConnectionParams): void {
           };
         }
         state.syncRoomSnapshot(data.snapshot);
+        useVoiceStore.getState().syncRoomPeers(data.snapshot.yourPlayerId, data.snapshot.seats);
         break;
       case 'roll':
-        state.playRemoteRoll(data.value);
+        state.playRemoteRoll(data.value, {
+          team: data.team,
+          seq: data.seq,
+          game: data.game,
+          legalMoves: data.legalMoves,
+          turnRemainingMs: data.turnRemainingMs,
+        });
         break;
       case 'move':
-        state.playRemoteMove(data.pawnId);
+        state.playRemoteMove(data.pawnId, {
+          team: data.team,
+          seq: data.seq,
+          game: data.game,
+          legalMoves: data.legalMoves,
+          turnRemainingMs: data.turnRemainingMs,
+        });
         break;
       case 'reset':
-        state.syncRemoteReset(data.mode);
+        state.syncRemoteReset(data.mode, {
+          seq: data.seq,
+          game: data.game,
+          turnRemainingMs: data.turnRemainingMs,
+        });
         break;
       case 'chat':
         state.pushChatMessage(data.chat);
@@ -300,10 +370,40 @@ function openSocket(params: ActiveConnectionParams): void {
         state.triggerYardEmote(team, data.emote);
         break;
       }
+      case 'voice_signal':
+        void useVoiceStore.getState().handleIncomingSignal(data.fromPlayerId, data.signal);
+        break;
+      case 'voice_blocked':
+        useVoiceStore.getState().handlePeerBlockedNotice(data.byPlayerId, data.blocked);
+        break;
+      case 'voice_peer_state':
+        useVoiceStore.getState().handlePeerVoiceState(data.playerId, data.enabled, data.muted);
+        break;
+      case 'room_closed':
+        useVoiceStore.getState().leaveRoomVoice();
+        intentionalClose = true;
+        activeCode = null;
+        activeParams = null;
+        reconnectAttempt = 0;
+        clearTimers();
+        notifyParentRoomCode(null);
+        clearRoomFromBrowserUrl();
+        socket = null;
+        try {
+          ws.close(4004, data.message);
+        } catch {
+          // Ignore already-closed socket.
+        }
+        state.closeOnlineRoom(data.message);
+        break;
       case 'error':
         lastServerError = data.message;
         useGameStore.getState().setRoomAlert(data.message);
         useGameStore.setState({ notice: data.message });
+        if (data.message.includes('Not your turn') || data.message.includes('Illegal pawn')) {
+          const latestName = (activeParams?.playerName ?? loadPlayerDisplayName()).trim().slice(0, 18);
+          send({ type: 'join', playerId, name: latestName || undefined, deviceId });
+        }
         break;
     }
   });
@@ -313,6 +413,8 @@ function openSocket(params: ActiveConnectionParams): void {
     socket = null;
     clearInterval(heartbeatTimer);
     heartbeatTimer = undefined;
+    clearTimeout(pongTimer);
+    pongTimer = undefined;
     registerRoomTransport(null);
 
     if (intentionalClose || !activeParams) return;
@@ -324,8 +426,7 @@ function openSocket(params: ActiveConnectionParams): void {
       reconnectAttempt = 0;
       notifyParentRoomCode(null);
       clearRoomFromBrowserUrl();
-      useGameStore.getState().setRoomAlert(msg);
-      useGameStore.setState({ room: null, notice: msg });
+      useGameStore.getState().closeOnlineRoom(msg);
       return;
     }
 
@@ -382,6 +483,10 @@ export function sendRoomMode(mode: GameMode): void {
   send({ type: 'set_mode', mode });
 }
 
+export function sendRoomStake(stake: number): void {
+  send({ type: 'set_stake', stake });
+}
+
 export function sendRoomName(name: string): void {
   savePlayerDisplayName(name);
   const trimmed = name.trim().slice(0, 18);
@@ -394,6 +499,125 @@ export function sendRoomSelectTeam(team: TeamId): void {
   send({ type: 'select_team', team });
 }
 
-export function sendRoomStart(mode: GameMode): void {
-  send({ type: 'start', mode });
+export interface WalletAuthInfo {
+  token?: string | null;
+  getToken?: () => Promise<string | null>;
+  walletId: string | null;
+  onUnauthorized?: () => void;
+}
+
+let walletAuthProvider: (() => WalletAuthInfo) | null = null;
+
+export function registerWalletAuthProvider(provider: (() => WalletAuthInfo) | null): void {
+  walletAuthProvider = provider;
+  if (provider) {
+    void useVoiceStore.getState().syncBlockedFromAccount();
+  }
+}
+
+registerVoiceTransport({
+  sendSignal: (targetPlayerId, signal) => send({ type: 'voice_signal', targetPlayerId, signal }),
+  sendBlock: (targetPlayerId, blocked) => send({ type: 'voice_block', targetPlayerId, blocked }),
+  sendState: (enabled, muted) => send({ type: 'voice_state', enabled, muted }),
+  getAuthToken: async () => {
+    const auth = walletAuthProvider?.();
+    if (!auth) return null;
+    if (auth.getToken) return auth.getToken();
+    return auth.token ?? null;
+  },
+  getHttpOrigin,
+});
+
+export function getGuestDeviceId(): string {
+  return getDeviceId();
+}
+
+export function getWalletPlayerId(): string {
+  return walletAuthProvider?.().walletId ?? getDeviceId();
+}
+
+async function getWalletAuthHeaders(): Promise<Record<string, string>> {
+  const info = walletAuthProvider?.();
+  if (!info) return {};
+  const token = info.getToken ? await info.getToken() : info.token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export async function syncWalletFromServer(): Promise<void> {
+  const epochBefore = getWalletMutationEpoch();
+  try {
+    const playerId = getWalletPlayerId();
+    const authHeaders = await getWalletAuthHeaders();
+    const res = await fetch(`${getHttpOrigin()}/api/wallet?playerId=${encodeURIComponent(playerId)}`, {
+      headers: authHeaders,
+    });
+    if (res.status === 401 && playerId.startsWith('acct:')) {
+      walletAuthProvider?.().onUnauthorized?.();
+      return;
+    }
+    if (!res.ok) return;
+    const data = (await res.json()) as { ok?: boolean; wallet?: Partial<WalletPersisted> };
+    if (data.ok && data.wallet && getWalletMutationEpoch() === epochBefore) {
+      useWalletStore.getState().applyServerSnapshot(data.wallet);
+    }
+  } catch {
+    // Offline fallback keeps localStorage wallet.
+  }
+}
+
+async function postWalletAction(action: WalletServerAction, payload?: Record<string, unknown>): Promise<void> {
+  const epochBefore = getWalletMutationEpoch();
+  try {
+    const playerId = getWalletPlayerId();
+    const authHeaders = await getWalletAuthHeaders();
+    const res = await fetch(
+      `${getHttpOrigin()}/api/wallet/${action}?playerId=${encodeURIComponent(playerId)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(payload ?? {}),
+      },
+    );
+    if (res.status === 401 && playerId.startsWith('acct:')) {
+      walletAuthProvider?.().onUnauthorized?.();
+      return;
+    }
+    if (!res.ok) return;
+    const data = (await res.json()) as { ok?: boolean; wallet?: Partial<WalletPersisted> };
+    if (data.ok && data.wallet && getWalletMutationEpoch() === epochBefore) {
+      useWalletStore.getState().applyServerSnapshot(data.wallet);
+    }
+  } catch {
+    // Offline fallback keeps localStorage wallet.
+  }
+}
+
+if (typeof window !== 'undefined') {
+  registerWalletServerSync((action, payload) => {
+    void postWalletAction(action, payload);
+  });
+}
+
+export async function findQuickMatch(
+  mode: GameMode,
+  stake: number,
+): Promise<{ ok: true; code: string; role: 'host' | 'guest' } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${getHttpOrigin()}/api/matchmake`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, stake }),
+    });
+    const data = (await res.json()) as { ok?: boolean; code?: string; role?: 'host' | 'guest'; error?: string };
+    if (!res.ok || !data.ok || !data.code || !data.role) {
+      return { ok: false, error: data.error ?? 'Could not find a public match.' };
+    }
+    return { ok: true, code: data.code, role: data.role };
+  } catch {
+    return { ok: false, error: 'Matchmaking server unreachable.' };
+  }
+}
+
+export function sendRoomStart(mode: GameMode, stake?: number): void {
+  send({ type: 'start', mode, stake });
 }

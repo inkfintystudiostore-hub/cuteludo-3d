@@ -21,7 +21,7 @@ import {
 } from '../engine/boardMap';
 import { useGameStore } from '../engine/gameStore';
 import { BoardPreview } from './BoardPreview';
-import { playEmoteVideo } from './emoteMedia';
+import { getEmoteAspect, playEmoteMedia } from './emoteMedia';
 import { getPicnicBlanketTexture, getTeamEmblemTexture, getWoodTexture } from './boardTextures';
 import { getAnimeToonMaterial } from './shaders/animeToonMaterial';
 
@@ -230,20 +230,19 @@ const NO_RAYCAST: THREE.Object3D['raycast'] = () => {};
 function YardEmoteOverlay({
   team,
   centre,
-  color,
   boardYaw,
 }: {
   team: TeamId;
   centre: WorldPoint;
-  color: string;
   boardYaw: number;
 }) {
   const yardEmote = useGameStore((s) => s.yardEmotes[team]);
   const clearYardEmote = useGameStore((s) => s.clearYardEmote);
   const cardRef = useRef<THREE.Group>(null);
-  const texture = useMemo(() => (yardEmote ? playEmoteVideo(yardEmote.emote) : null), [yardEmote]);
+  const videoMeshRef = useRef<THREE.Mesh>(null);
+  const texture = useMemo(() => (yardEmote ? playEmoteMedia(yardEmote.emote) : null), [yardEmote]);
 
-  useFrame(({ clock }) => {
+  useFrame(() => {
     if (!yardEmote || !cardRef.current) return;
     const now = Date.now();
     if (now >= yardEmote.expiresAt) {
@@ -253,30 +252,43 @@ function YardEmoteOverlay({
     const elapsed = now - yardEmote.startedAt;
     const remaining = yardEmote.expiresAt - now;
     let popScale = 1;
-    if (elapsed < 220) {
-      popScale = Math.sin((elapsed / 220) * Math.PI * 0.62) * 1.08;
-    } else if (remaining < 280) {
-      popScale = Math.max(0.01, remaining / 280);
+    if (elapsed < 180) {
+      popScale = Math.sin((elapsed / 180) * Math.PI * 0.62) * 1.04;
+    } else if (remaining < 220) {
+      popScale = Math.max(0.01, remaining / 220);
     }
-    const bob = Math.sin(clock.elapsedTime * 5) * 0.04;
-    cardRef.current.position.set(centre.x, 1.46 + bob, centre.z);
-    cardRef.current.scale.setScalar(popScale);
+    // Sit flush inside the 3.96×3.96 cream yard box (above cradles at y=0.107) so there is zero parallax shift and the full colored border stays visible.
+    cardRef.current.position.set(centre.x, 0.114, centre.z);
+    cardRef.current.scale.set(popScale, 1, popScale);
+
+    if (videoMeshRef.current) {
+      const aspect = getEmoteAspect(yardEmote.emote);
+      const fitX = aspect >= 1 ? 1 : aspect;
+      const fitY = aspect >= 1 ? 1 / aspect : 1;
+      videoMeshRef.current.scale.set(fitX, fitY, 1);
+    }
   });
 
   if (!yardEmote || !texture) return null;
 
+  const initialAspect = getEmoteAspect(yardEmote.emote);
+  const initFitX = initialAspect >= 1 ? 1 : initialAspect;
+  const initFitY = initialAspect >= 1 ? 1 / initialAspect : 1;
+
   return (
-    <group ref={cardRef} position={[centre.x, 1.46, centre.z]} rotation-y={-boardYaw}>
-      <mesh raycast={NO_RAYCAST}>
-        <boxGeometry args={[5.82, 0.08, 5.82]} />
-        <meshBasicMaterial color={INK} />
+    <group ref={cardRef} position={[centre.x, 0.114, centre.z]} rotation-y={-boardYaw}>
+      <mesh rotation-x={-Math.PI / 2} position-y={-0.001} raycast={NO_RAYCAST}>
+        <planeGeometry args={[3.94, 3.94]} />
+        <meshBasicMaterial color={NEUTRAL} toneMapped={false} />
       </mesh>
-      <mesh position-y={0.012} raycast={NO_RAYCAST}>
-        <boxGeometry args={[5.58, 0.08, 5.58]} />
-        <meshBasicMaterial color={color} />
-      </mesh>
-      <mesh key={yardEmote.emote} position-y={0.055} rotation-x={-Math.PI / 2} raycast={NO_RAYCAST}>
-        <planeGeometry args={[5.36, 5.36]} />
+      <mesh
+        ref={videoMeshRef}
+        key={yardEmote.emote}
+        rotation-x={-Math.PI / 2}
+        scale={[initFitX, initFitY, 1]}
+        raycast={NO_RAYCAST}
+      >
+        <planeGeometry args={[3.94, 3.94]} />
         <meshBasicMaterial map={texture} toneMapped={false} />
       </mesh>
     </group>
@@ -349,7 +361,7 @@ function Yard({ team, boardYaw }: { team: TeamId; boardYaw: number }) {
           </group>
         ))}
       </group>
-      <YardEmoteOverlay team={team} centre={centre} color={color} boardYaw={boardYaw} />
+      <YardEmoteOverlay team={team} centre={centre} boardYaw={boardYaw} />
     </group>
   );
 }

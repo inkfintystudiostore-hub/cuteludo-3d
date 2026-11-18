@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { getBoardYawForTeam } from '../engine/boardMap';
 import { getLocalAnchorTeam, useGameStore } from '../engine/gameStore';
 import { BoardMesh } from './BoardMesh';
+import { useIsMobileGpu } from './deviceProfile';
 import { AnimeEffects } from './effects/AnimeEffects';
 import { PawnActor } from './PawnActor';
 
@@ -71,13 +72,18 @@ function CameraRig() {
   useLayoutEffect(() => {
     if (width < 2 || height < 2) return;
     const aspect = width / height;
-    const isNarrow = width < 640 || aspect < 0.95;
-    const isCompact = isNarrow || height < 540;
-    const fov = isNarrow ? 42.5 : FOV;
-    const elevation = isNarrow ? THREE.MathUtils.degToRad(56) : ELEVATION;
-    // WoodBase outer edge spans 8.5 units; keep >= 8.55 radius so corner yards never clip.
-    const radius = isNarrow ? 8.55 : BOARD_RADIUS;
-    const headroom = isCompact ? 0.45 : HEADROOM;
+    const isPortrait = aspect < 1.0;
+    const isCompactHeight = height < 540;
+    const isNarrow = width < 640 || isPortrait;
+    const fov = isPortrait ? 35 : isNarrow || isCompactHeight ? 36 : FOV;
+    const elevation = isPortrait
+      ? THREE.MathUtils.degToRad(48)
+      : isCompactHeight
+        ? THREE.MathUtils.degToRad(50)
+        : ELEVATION;
+    // Playable field stops at ±7.6; 7.2 on portrait zooms in further while letting the outer wood rim bleed cleanly.
+    const radius = isPortrait ? 7.2 : isNarrow || isCompactHeight ? 8.3 : BOARD_RADIUS;
+    const headroom = isPortrait ? 0.2 : isCompactHeight ? 0.22 : HEADROOM;
     const tanHalf = Math.tan(THREE.MathUtils.degToRad(fov / 2));
     const nearEdge = radius * Math.cos(elevation);
     const fitHeight = (radius * Math.sin(elevation) + headroom) / tanHalf + nearEdge;
@@ -186,11 +192,36 @@ function CameraRig() {
   );
 }
 
+/** Caps mobile rendering at ~60fps (prevents 120Hz ProMotion thermal runaway) and stops cleanly when paused/on lobby. */
+function MobileFramePacer({ active }: { active: boolean }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    if (!active) return;
+    let raf = 0;
+    let last = performance.now();
+    // 15ms threshold: fires every tick on 60Hz displays and every 2nd tick (60fps) on 120Hz displays.
+    const tick = (now: number) => {
+      if (now - last >= 15) {
+        last = now;
+        invalidate();
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    invalidate();
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [active, invalidate]);
+  return null;
+}
+
 export function LudoCanvas() {
   const pawns = useGameStore((s) => s.game.pawns);
+  const screen = useGameStore((s) => s.screen);
+  const paused = useGameStore((s) => s.paused);
   const triggerCameraReset = useGameStore((s) => s.triggerCameraReset);
   const anchorTeam = useGameStore((s) => getLocalAnchorTeam(s));
   const boardYaw = getBoardYawForTeam(anchorTeam);
+  const mobile = useIsMobileGpu();
   const [canvasKey, setCanvasKey] = useState(0);
   const cleanupCanvasRef = useRef<(() => void) | null>(null);
 
@@ -198,14 +229,15 @@ export function LudoCanvas() {
 
   return (
     <div className="h-full w-full touch-none select-none" onDoubleClick={triggerCameraReset}>
-      {/* `flat`: the composer owns the output, and un-tone-mapped colours keep the pastels true. */}
+      {/* `flat`: un-tone-mapped colours keep the pastels true both with and without Bloom. */}
       <Canvas
         key={canvasKey}
         flat
         shadows
-        dpr={[1, 2.5]}
+        frameloop={!mobile && screen === 'playing' && !paused ? 'always' : 'demand'}
+        dpr={mobile ? [1, 1.5] : [1, 2]}
         camera={{ fov: FOV, near: 0.5, far: 300 }}
-        gl={{ antialias: true, powerPreference: 'high-performance', failIfMajorPerformanceCaveat: false }}
+        gl={{ antialias: true, powerPreference: 'default', failIfMajorPerformanceCaveat: false }}
         onCreated={({ gl, scene, camera }) => {
           cleanupCanvasRef.current?.();
           const canvasEl = gl.domElement;
@@ -225,10 +257,11 @@ export function LudoCanvas() {
           if (import.meta.env.DEV) Object.assign(window, { ludoScene: scene, ludoCamera: camera });
         }}
       >
+        <MobileFramePacer active={mobile && screen === 'playing' && !paused} />
         <color attach="background" args={[SCENE_BACKGROUND]} />
         <CameraRig />
         {/* Offline procedural studio reflection rig for crisp figurine highlights. */}
-        <Environment frames={1} resolution={256} environmentIntensity={0.44}>
+        <Environment frames={1} resolution={mobile ? 128 : 256} environmentIntensity={0.44}>
           <Lightformer form="rect" intensity={1.4} color="#fff7ec" position={[5, 10, 6]} scale={[12, 8, 1]} target={[0, 0, 0]} />
           <Lightformer form="circle" intensity={1.1} color="#e6d6ff" position={[-8, 6, -6]} scale={9} target={[0, 0, 0]} />
           <Lightformer form="ring" intensity={0.85} color="#ffd8e6" position={[0, 8, -9]} scale={8} target={[0, 0, 0]} />
@@ -242,7 +275,7 @@ export function LudoCanvas() {
           color="#fff6e6"
           intensity={2.1}
           position={[9, 17, 8]}
-          shadow-mapSize={[2048, 2048]}
+          shadow-mapSize={mobile ? [1024, 1024] : [2048, 2048]}
           shadow-bias={-0.0004}
           shadow-normalBias={0.015}
           shadow-radius={2.5}
@@ -256,11 +289,13 @@ export function LudoCanvas() {
           ))}
           <AnimeEffects />
         </group>
-        <PostProcessingErrorBoundary>
-          <EffectComposer multisampling={4}>
-            <Bloom mipmapBlur luminanceThreshold={1.2} luminanceSmoothing={0.2} intensity={0.85} />
-          </EffectComposer>
-        </PostProcessingErrorBoundary>
+        {!mobile && (
+          <PostProcessingErrorBoundary>
+            <EffectComposer multisampling={0}>
+              <Bloom mipmapBlur luminanceThreshold={1.2} luminanceSmoothing={0.2} intensity={0.85} />
+            </EffectComposer>
+          </PostProcessingErrorBoundary>
+        )}
       </Canvas>
     </div>
   );

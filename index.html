@@ -4,13 +4,70 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content" />
     <meta name="theme-color" content="#ffe5ec" />
+    <meta name="description" content="Play Chibi Ludo 3D — cute 3D board game with bots & online multiplayer." />
+    <meta name="application-name" content="Chibi Ludo 3D" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Chibi Ludo" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <title>Chibi Ludo 3D</title>
+    <meta name="google-adsense-account" content="ca-pub-9649669731732434" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet" />
+    <script
+      async
+      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9649669731732434"
+      crossorigin="anonymous"
+    ></script>
+    <script>
+      window.adsbygoogle = window.adsbygoogle || [];
+      window.adBreak = window.adConfig = function (o) {
+        adsbygoogle.push(o);
+      };
+      adConfig({ preloadAdBreaks: 'on', sound: 'on' });
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main style="font-family: system-ui, -apple-system, sans-serif; max-width: 760px; margin: 40px auto; padding: 20px; color: #1e1b18; line-height: 1.6;">
+        <header style="text-align: center; margin-bottom: 24px;">
+          <h1 style="font-size: 2rem; margin-bottom: 8px;">Chibi Ludo 3D</h1>
+          <p style="font-size: 1.1rem; color: #4a453f;">A cute, anime-inspired 3D board game with smart AI bots and real-time online multiplayer rooms.</p>
+        </header>
+
+        <section style="margin-bottom: 24px; padding: 16px; border: 2px solid #1e1b18; border-radius: 12px; background: #fff8f5;">
+          <h2 style="font-size: 1.3rem; margin-top: 0;">How to Play Chibi Ludo</h2>
+          <p>Chibi Ludo 3D is a classic cross-and-circle strategy game. Roll the 3D dice, guide your animal team around the track, capture opponents' tokens, and be the first to reach the center Home!</p>
+          <ul>
+            <li><strong>Spawn on a 6:</strong> Roll a 6 to move a token from your yard onto the board track.</li>
+            <li><strong>Extra Turns:</strong> Rolling a 6 or capturing an opponent token grants an instant bonus roll.</li>
+            <li><strong>Safe Stars:</strong> Tokens situated on star tiles cannot be captured.</li>
+            <li><strong>Game Modes:</strong> Play Solo vs smart AI bots, Pass &amp; Play locally, or create a private 9-digit room with friends.</li>
+          </ul>
+        </section>
+
+        <section style="margin-bottom: 24px; padding: 16px; border: 2px solid #1e1b18; border-radius: 12px; background: #ffe0ea;">
+          <h2 style="font-size: 1.2rem; margin-top: 0;">About &amp; Privacy Policy</h2>
+          <p>Chibi Ludo 3D is created by <strong>Inkfinity Studio</strong> (<a href="https://inkfinitystudio.store" style="color: #1e1b18; font-weight: bold;">inkfinitystudio.store</a>).</p>
+          <p><strong>Advertising &amp; Cookies:</strong> This website uses Google AdSense to serve ads. Google and third-party vendors use cookies to serve ads based on prior visits to this and other websites. You may opt out of personalized ads by visiting <a href="https://www.google.com/settings/ads" style="color: #1e1b18; font-weight: bold;">Google Ads Settings</a>.</p>
+          <p>For inquiries, support, or privacy requests, please reach out to <a href="mailto:support@inkfinitystudio.store" style="color: #1e1b18; font-weight: bold;">support@inkfinitystudio.store</a>.</p>
+        </section>
+
+        <footer style="text-align: center; font-size: 0.9rem; color: #6b645c; border-top: 1px solid #ddd; padding-top: 16px;">
+          <p>&copy; 2026 Inkfinity Studio. All rights reserved. | <a href="https://inkfinitystudio.store" style="color: #1e1b18;">Visit Inkfinity Studio</a></p>
+        </footer>
+      </main>
+    </div>
+    <noscript>
+      <div style="background: #fff3cd; border: 2px solid #856404; color: #856404; padding: 15px; margin: 20px; border-radius: 8px; text-align: center;">
+        Please enable JavaScript in your browser to play Chibi Ludo 3D.
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

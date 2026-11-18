@@ -126,20 +126,30 @@ class SoundManager {
     this.noise(ctx, out, { at, duration: 0.02, gain: 0.07, filter: 'highpass', freq: 3200 }); // mallet tick
   }
 
+  /** Subtle crisp tap when requesting a dice roll (gives instant tactile feedback online). */
+  playDiceTap(): void {
+    const audio = this.audio();
+    if (!audio) return;
+    const { ctx, out } = audio;
+    const at = ctx.currentTime;
+    this.tone(ctx, out, { type: 'triangle', freq: 420, endFreq: 680, at, duration: 0.055, gain: 0.16 });
+    this.noise(ctx, out, { at, duration: 0.025, gain: 0.09, filter: 'bandpass', freq: 2400, q: 2.5 });
+  }
+
   /** Rattling tumble that ends in a wooden clack `landAfter` seconds later. */
-  playDiceRoll(landAfter = 1.1): void {
+  playDiceRoll(landAfter = 0.28): void {
     const audio = this.audio();
     if (!audio) return;
     const { ctx, out } = audio;
     const now = ctx.currentTime;
-    const rattles = 9;
+    const rattles = 6;
     for (let i = 0; i < rattles; i++) {
-      const at = now + (i / rattles) * landAfter * 0.92 + Math.random() * 0.03;
-      this.noise(ctx, out, { at, duration: 0.035, gain: 0.17, filter: 'bandpass', freq: 1800 + Math.random() * 1600, q: 3 });
+      const at = now + (i / rattles) * landAfter * 0.9 + Math.random() * 0.02;
+      this.noise(ctx, out, { at, duration: 0.03, gain: 0.16, filter: 'bandpass', freq: 1800 + Math.random() * 1600, q: 3 });
     }
     const land = now + landAfter;
-    this.tone(ctx, out, { type: 'triangle', freq: 230, endFreq: 105, at: land, duration: 0.1, gain: 0.4 });
-    this.noise(ctx, out, { at: land, duration: 0.045, gain: 0.3, filter: 'bandpass', freq: 950, q: 2 });
+    this.tone(ctx, out, { type: 'triangle', freq: 230, endFreq: 105, at: land, duration: 0.09, gain: 0.38 });
+    this.noise(ctx, out, { at: land, duration: 0.04, gain: 0.28, filter: 'bandpass', freq: 950, q: 2 });
   }
 
   /** Sparkling major-9th arpeggio. */
@@ -164,25 +174,30 @@ class SoundManager {
   }
 
   /**
-   * Rising spin whistle, a springy boing as the victim launches, and a soft thud on landing.
-   * `twirl` and `flight` are the lengths of those two animation phases in seconds.
+   * Snappy grab pop, rising centrifugal spin whistle, springy boing on throw, and thud on landing.
+   * `grab`, `twirl` and `flight` are the lengths of those animation phases in seconds.
    */
-  playCapture(twirl = 0.5, flight = 1): void {
+  playCapture(twirl = 1.05, flight = 0.72, grab = 0.24): void {
     const audio = this.audio();
     if (!audio) return;
     const { ctx, out } = audio;
     const now = ctx.currentTime;
 
-    const whistle = this.tone(ctx, out, { type: 'sine', freq: 420, endFreq: 1900, at: now, duration: twirl, gain: 0.15, attack: 0.03 });
+    // Quick clasp/grab "yoink!" pop.
+    this.tone(ctx, out, { type: 'triangle', freq: 260, endFreq: 560, at: now + 0.04, duration: 0.09, gain: 0.22 });
+    this.noise(ctx, out, { at: now + grab * 0.75, duration: 0.05, gain: 0.12, filter: 'bandpass', freq: 1800, q: 2 });
+
+    const twirlAt = now + grab;
+    const whistle = this.tone(ctx, out, { type: 'sine', freq: 380, endFreq: 2100, at: twirlAt, duration: twirl, gain: 0.15, attack: 0.04 });
     const vibrato = ctx.createOscillator();
     const vibratoDepth = ctx.createGain();
-    vibrato.frequency.value = 15;
-    vibratoDepth.gain.value = 28;
+    vibrato.frequency.value = 18;
+    vibratoDepth.gain.value = 34;
     vibrato.connect(vibratoDepth).connect(whistle.frequency);
-    vibrato.start(now);
-    vibrato.stop(now + twirl + 0.05);
+    vibrato.start(twirlAt);
+    vibrato.stop(twirlAt + twirl + 0.05);
 
-    const launch = now + twirl;
+    const launch = twirlAt + twirl;
     const boing = this.tone(ctx, out, { type: 'sine', freq: 150, at: launch, duration: 0.65, gain: 0.32 });
     boing.frequency.exponentialRampToValueAtTime(520, launch + 0.12);
     boing.frequency.exponentialRampToValueAtTime(210, launch + 0.65);
@@ -195,7 +210,7 @@ class SoundManager {
     spring.start(launch);
     spring.stop(launch + 0.7);
 
-    const land = now + twirl + flight;
+    const land = launch + flight;
     this.tone(ctx, out, { type: 'sine', freq: 130, endFreq: 55, at: land, duration: 0.14, gain: 0.3 });
     this.noise(ctx, out, { at: land, duration: 0.12, gain: 0.12, filter: 'lowpass', freq: 700 });
   }

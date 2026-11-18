@@ -16,11 +16,12 @@ import { soundManager } from '../utils/soundManager';
 import {
   CAPTURE_DIZZY_DURATION,
   CAPTURE_FLIGHT_DURATION,
+  CAPTURE_GRAB_DURATION,
   CAPTURE_TWIRL_DURATION,
   HOP_DURATION,
   SPAWN_DURATION,
 } from './animationTiming';
-import { PICNIC_ACTIVITIES } from './ChibiFigure';
+import { PICNIC_ACTIVITIES, type CapturePose } from './ChibiFigure';
 import { PawnModel, type PawnClip } from './PawnModel';
 
 const TAU = Math.PI * 2;
@@ -74,8 +75,8 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
   const settledKeyRef = useRef('');
   /** True while this pawn is travelling, so skeletal models switch to their Hop clip. */
   const [travelling, setTravelling] = useState(false);
-  /** Expressive capture mood triggered mid-timeline (laughing attacker / dizzy victim). */
-  const [captureMood, setCaptureMood] = useState<'none' | 'laugh' | 'dizzy'>('none');
+  /** Expressive capture pose triggered mid-timeline (grab, hand-held twirl, throw, flail, laugh, dizzy). */
+  const [capturePose, setCapturePose] = useState<CapturePose>('none');
 
   const pawns = useGameStore((s) => s.game.pawns);
   const mode = useGameStore((s) => s.game.mode);
@@ -83,7 +84,14 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
   const rankings = useGameStore((s) => s.game.rankings);
   const isAnimating = useGameStore((s) => s.isAnimating);
   const lastEvent = useGameStore((s) => s.lastEvent);
+  const hasYardEmote = useGameStore((s) => Boolean(s.yardEmotes[pawn.team]));
   const movable = useGameStore((s) => canLocalPlayerAct(s) && s.legalMoves.includes(pawn.id));
+  const hiddenInYard =
+    hasYardEmote &&
+    pawn.progress === -1 &&
+    !movable &&
+    !(lastEvent?.type === 'SPAWN_6' && lastEvent.pawnId === pawn.id) &&
+    !(lastEvent?.type === 'CAPTURE' && lastEvent.victimId === pawn.id);
   const isHovered = useGameStore((s) => s.hoveredPawnId === pawn.id);
   const selectPawn = useGameStore((s) => s.selectPawn);
   const setHoveredPawn = useGameStore((s) => s.setHoveredPawn);
@@ -138,10 +146,10 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
   // Play this actor's part in the current event.
   useEffect(() => {
     if (!lastEvent) {
-      setCaptureMood('none');
+      setCapturePose('none');
       return;
     }
-    if (lastEvent.type !== 'CAPTURE') setCaptureMood('none');
+    if (lastEvent.type !== 'CAPTURE') setCapturePose('none');
 
     const root = rootRef.current!;
     const tilt = tiltRef.current!;
@@ -222,57 +230,133 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
       }
 
       case 'CAPTURE': {
-        if (lastEvent.attackerId === id) {
-          // Attacker whips the victim around, then throws head back & laughs!
-          takeStage();
+        const isAttacker = lastEvent.attackerId === id;
+        const isVictim = lastEvent.victimId === id;
+        if (!isAttacker && !isVictim) break;
+
+        takeStage();
+        setTravelling(false);
+        setCapturePose('grab');
+
+        const [tile, yard] = lastEvent.pathWaypoints;
+        const startAngle = 0.55;
+        const grabRadiusA = 0.18;
+        const grabRadiusV = 0.68;
+        const spinRadiusA = 0.14;
+        const spinRadiusV = 0.44;
+        const totalSpin = TAU * 3.5;
+        const twirlStart = CAPTURE_GRAB_DURATION;
+        const releaseAt = twirlStart + CAPTURE_TWIRL_DURATION;
+        const halfFlight = CAPTURE_FLIGHT_DURATION / 2;
+        const impactAt = releaseAt + CAPTURE_FLIGHT_DURATION;
+        const yawA0 = Math.atan2(Math.cos(startAngle), Math.sin(startAngle));
+        const yawV0 = yawA0 + Math.PI;
+
+        if (isAttacker) {
+          // Beat 1: Step in, face victim, reach hands forward to clasp victim's hands.
+          // Beat 2: Lean back & whirl victim gol-gol 3.5x hand-in-hand!
+          // Beat 3: Fling arms open to launch victim home, then bounce & belly-laugh!
+          const yawBaseA = nearestAngle(root.rotation.y, yawA0);
+          const orbit = { angle: 0, progress: 0 };
           timeline = gsap
             .timeline()
-            .to(tilt.rotation, { y: TAU * 2.5, duration: CAPTURE_TWIRL_DURATION, ease: 'power1.inOut' })
-            .set(tilt.rotation, { y: 0 })
-            .call(() => setCaptureMood('laugh'))
-            .to(tilt.position, { y: 0.22, duration: 0.085, ease: 'power2.out', yoyo: true, repeat: 5 })
-            .to(squash.scale, { x: 1.1, y: 0.9, z: 1.1, duration: 0.085, yoyo: true, repeat: 5 }, '<')
-            .to(squash.scale, { ...NEUTRAL, duration: 0.16, ease: 'power2.out' });
+            .to(
+              root.position,
+              {
+                x: tile.x - Math.cos(startAngle) * grabRadiusA,
+                z: tile.z - Math.sin(startAngle) * grabRadiusA,
+                duration: CAPTURE_GRAB_DURATION * 0.85,
+                ease: 'power2.out',
+              },
+              0,
+            )
+            .to(root.rotation, { y: yawBaseA, duration: CAPTURE_GRAB_DURATION * 0.75, ease: 'power2.out' }, 0)
+            .to(tilt.rotation, { x: 0.1, duration: CAPTURE_GRAB_DURATION * 0.5, ease: 'power1.out' }, 0)
+            .to(tilt.rotation, { x: 0, duration: CAPTURE_GRAB_DURATION * 0.5, ease: 'power1.in' }, CAPTURE_GRAB_DURATION * 0.5)
+            .to(squash.scale, { x: 1.08, y: 0.92, z: 1.08, duration: CAPTURE_GRAB_DURATION * 0.45 }, 0)
+            .to(squash.scale, { ...NEUTRAL, duration: CAPTURE_GRAB_DURATION * 0.5 }, CAPTURE_GRAB_DURATION * 0.45)
+            .call(() => setCapturePose('twirl_attacker'), [], twirlStart)
+            .to(
+              orbit,
+              {
+                angle: totalSpin,
+                progress: 1,
+                duration: CAPTURE_TWIRL_DURATION,
+                ease: 'power2.in',
+                onUpdate: () => {
+                  const ang = startAngle + orbit.angle;
+                  const r = THREE.MathUtils.lerp(grabRadiusA, spinRadiusA, orbit.progress);
+                  root.position.x = tile.x - Math.cos(ang) * r;
+                  root.position.z = tile.z - Math.sin(ang) * r;
+                  root.rotation.y = yawBaseA - orbit.angle;
+                },
+              },
+              twirlStart,
+            )
+            .to(tilt.rotation, { x: -0.14, duration: CAPTURE_TWIRL_DURATION * 0.45, ease: 'power1.out' }, twirlStart)
+            .call(() => setCapturePose('throw'), [], releaseAt)
+            .to(root.position, { x: tile.x, z: tile.z, duration: 0.2, ease: 'power2.out' }, releaseAt)
+            .to(tilt.rotation, { x: 0, duration: 0.16, ease: 'back.out(2)' }, releaseAt)
+            .to(squash.scale, { ...STRETCH, duration: 0.12, ease: 'power2.out' }, releaseAt)
+            .to(squash.scale, { ...NEUTRAL, duration: 0.12 }, releaseAt + 0.12)
+            .call(() => setCapturePose('laugh'), [], releaseAt + 0.2)
+            .to(tilt.position, { y: 0.22, duration: 0.085, ease: 'power2.out', yoyo: true, repeat: 5 }, releaseAt + 0.2)
+            .to(squash.scale, { x: 1.1, y: 0.9, z: 1.1, duration: 0.085, yoyo: true, repeat: 5 }, releaseAt + 0.2)
+            .to(squash.scale, { ...NEUTRAL, duration: 0.14, ease: 'power2.out' });
           break;
         }
-        if (lastEvent.victimId !== id) break;
-        takeStage();
-        soundManager.playCapture(CAPTURE_TWIRL_DURATION, CAPTURE_FLIGHT_DURATION);
-        const [tile, yard] = lastEvent.pathWaypoints;
-        const radius = 0.42;
-        const startAngle = Math.atan2(root.position.z - tile.z, root.position.x - tile.x);
-        const orbit = { angle: 0 };
-        const launch = CAPTURE_TWIRL_DURATION;
-        const halfFlight = CAPTURE_FLIGHT_DURATION / 2;
-        const impactAt = launch + CAPTURE_FLIGHT_DURATION;
+
+        // Victim: clasp hands with attacker, lift off into a centrifugal gol-gol twirl,
+        // get flung sky-high back to yard, and crash-land dizzy!
+        soundManager.playCapture(CAPTURE_TWIRL_DURATION, CAPTURE_FLIGHT_DURATION, CAPTURE_GRAB_DURATION);
+        const yawBaseV = nearestAngle(root.rotation.y, yawV0);
+        const orbit = { angle: 0, progress: 0 };
         timeline = gsap
           .timeline({ onComplete: done })
-          // Whirled around the attacker: gol-gol spin tilted outward!
+          .to(root.scale, { x: 1, y: 1, z: 1, duration: 0.16, ease: 'power2.out' }, 0)
           .to(
-            orbit,
+            root.position,
             {
-              angle: TAU * 2.5,
-              duration: CAPTURE_TWIRL_DURATION,
-              ease: 'power1.in',
-              onUpdate: () => {
-                root.position.x = tile.x + Math.cos(startAngle + orbit.angle) * radius;
-                root.position.z = tile.z + Math.sin(startAngle + orbit.angle) * radius;
-              },
+              x: tile.x + Math.cos(startAngle) * grabRadiusV,
+              z: tile.z + Math.sin(startAngle) * grabRadiusV,
+              duration: CAPTURE_GRAB_DURATION * 0.85,
+              ease: 'power2.out',
             },
             0,
           )
-          .to(tilt.rotation, { y: TAU * 2.5, z: 0.45, duration: CAPTURE_TWIRL_DURATION, ease: 'power1.in' }, 0)
-          .to(root.position, { y: TILE_SURFACE_Y + 0.35, duration: CAPTURE_TWIRL_DURATION, ease: 'power1.out' }, 0)
-          .to(squash.scale, { ...STRETCH, duration: CAPTURE_TWIRL_DURATION }, 0)
+          .to(root.position, { y: TILE_SURFACE_Y + 0.22, duration: CAPTURE_GRAB_DURATION * 0.45, ease: 'power2.out' }, 0)
+          .to(root.position, { y: TILE_SURFACE_Y, duration: CAPTURE_GRAB_DURATION * 0.45, ease: 'power2.in' }, CAPTURE_GRAB_DURATION * 0.45)
+          .to(root.rotation, { y: yawBaseV, duration: CAPTURE_GRAB_DURATION * 0.75, ease: 'power2.out' }, 0)
+          .call(() => setCapturePose('twirl_victim'), [], twirlStart)
+          .to(
+            orbit,
+            {
+              angle: totalSpin,
+              progress: 1,
+              duration: CAPTURE_TWIRL_DURATION,
+              ease: 'power2.in',
+              onUpdate: () => {
+                const ang = startAngle + orbit.angle;
+                const r = THREE.MathUtils.lerp(grabRadiusV, spinRadiusV, orbit.progress);
+                root.position.x = tile.x + Math.cos(ang) * r;
+                root.position.z = tile.z + Math.sin(ang) * r;
+                root.rotation.y = yawBaseV - orbit.angle;
+              },
+            },
+            twirlStart,
+          )
+          .to(root.position, { y: TILE_SURFACE_Y + 0.28, duration: CAPTURE_TWIRL_DURATION * 0.65, ease: 'power1.out' }, twirlStart)
+          .to(tilt.rotation, { x: -0.32, duration: CAPTURE_TWIRL_DURATION * 0.55, ease: 'power1.out' }, twirlStart)
+          .to(squash.scale, { ...STRETCH, duration: CAPTURE_TWIRL_DURATION * 0.6 }, twirlStart)
           // Fling back to yard with wild gol-gol & head-over-heels tumble.
-          .to(root.position, { x: yard.x, z: yard.z, duration: CAPTURE_FLIGHT_DURATION, ease: 'none' }, launch)
-          .to(root.position, { y: CAPTURE_APEX_Y, duration: halfFlight, ease: 'power2.out' }, launch)
-          .to(root.position, { y: TILE_SURFACE_Y, duration: halfFlight, ease: 'power2.in' }, launch + halfFlight)
-          .to(tilt.rotation, { y: TAU * 7, z: TAU * 3, duration: CAPTURE_FLIGHT_DURATION, ease: 'none' }, launch)
-          .to(root.scale, { x: 1, y: 1, z: 1, duration: 0.24 }, launch)
-          .set(tilt.rotation, { x: 0, y: 0, z: 0 })
+          .call(() => setCapturePose('flail'), [], releaseAt)
+          .to(root.position, { x: yard.x, z: yard.z, duration: CAPTURE_FLIGHT_DURATION, ease: 'none' }, releaseAt)
+          .to(root.position, { y: CAPTURE_APEX_Y, duration: halfFlight, ease: 'power2.out' }, releaseAt)
+          .to(root.position, { y: TILE_SURFACE_Y, duration: halfFlight, ease: 'power2.in' }, releaseAt + halfFlight)
+          .to(tilt.rotation, { y: TAU * 6, z: TAU * 3, x: -TAU * 2, duration: CAPTURE_FLIGHT_DURATION, ease: 'none' }, releaseAt)
+          .set(tilt.rotation, { x: 0, y: 0, z: 0 }, impactAt)
           // Crash-land into a dizzy chakkar-kha-ke wobble!
-          .call(() => setCaptureMood('dizzy'), [], impactAt);
+          .call(() => setCapturePose('dizzy'), [], impactAt);
         land(timeline, impactAt);
         timeline
           .to(
@@ -317,7 +401,7 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
 
     return () => {
       timeline?.kill();
-      setCaptureMood('none');
+      setCapturePose('none');
     };
   }, [lastEvent, pawn.id, completeEvent]);
 
@@ -360,6 +444,7 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
   return (
     <group
       ref={rootRef}
+      visible={!hiddenInYard}
       onPointerDown={(event) => {
         if (!movable) return;
         pointerDownPosRef.current = { x: event.clientX, y: event.clientY };
@@ -416,8 +501,9 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
             picnicActivity={picnicActivity}
             finalRank={validRank}
             isLastPlace={isLastPlace}
-            isLaughing={captureMood === 'laugh'}
-            isDizzy={captureMood === 'dizzy'}
+            isLaughing={capturePose === 'laugh'}
+            isDizzy={capturePose === 'dizzy'}
+            capturePose={capturePose}
           />
         </group>
       </group>
