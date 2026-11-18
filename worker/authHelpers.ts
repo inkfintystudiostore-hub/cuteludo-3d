@@ -14,9 +14,20 @@ export interface SessionPayload {
   exp: number;
 }
 
-const DEFAULT_DEV_AUTH_SECRET = 'chibi-ludo-dev-auth-secret-change-in-prod';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PBKDF2_ITERATIONS = 100_000;
+
+// Ephemeral in-memory fallback generated once per worker/process instance.
+// Never uses a predictable static secret, preventing cross-instance or forged offline token attacks
+// if AUTH_SECRET is omitted in development. In production, configure AUTH_SECRET via `wrangler secret put AUTH_SECRET`.
+let devAuthSecretCache: string | null = null;
+function getDevAuthSecret(): string {
+  if (!devAuthSecretCache) {
+    const randomBytes = crypto.getRandomValues(new Uint8Array(32));
+    devAuthSecretCache = bytesToHex(randomBytes);
+  }
+  return devAuthSecretCache;
+}
 
 export function normalizeUsername(raw: string): string {
   return raw.trim().toLowerCase();
@@ -131,7 +142,7 @@ export async function createSessionToken(
     exp: now + SESSION_TTL_MS,
   };
   const encoded = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
-  const sig = await signHmac(encoded, secret || DEFAULT_DEV_AUTH_SECRET);
+  const sig = await signHmac(encoded, secret || getDevAuthSecret());
   return `${encoded}.${sig}`;
 }
 
@@ -145,7 +156,7 @@ export async function verifySessionToken(
   if (parts.length !== 2) return null;
   const [encoded, sig] = parts;
   if (!encoded || !sig) return null;
-  const expectedSig = await signHmac(encoded, secret || DEFAULT_DEV_AUTH_SECRET);
+  const expectedSig = await signHmac(encoded, secret || getDevAuthSecret());
   if (!timingSafeEqualStr(sig, expectedSig)) return null;
   try {
     const json = new TextDecoder().decode(base64UrlToBytes(encoded));

@@ -64,6 +64,11 @@ describe('auth helpers', () => {
 
     // Expired token
     expect(await verifySessionToken(token, secret, now + 31 * 24 * 60 * 60 * 1000)).toBeNull();
+
+    // Works with fallback secret when secret is omitted
+    const fallbackToken = await createSessionToken(account, undefined, now);
+    const verifiedFallback = await verifySessionToken(fallbackToken, undefined, now + 1000);
+    expect(verifiedFallback?.accountId).toBe(account.accountId);
   });
 
   it('validates Firebase ID token claims against projectId and expiration', () => {
