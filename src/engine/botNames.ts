@@ -341,6 +341,8 @@ export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
       { speaker: 'B', text: 'bhai sach mein?! kis baat pe lad gaye?' },
       { speaker: 'A', text: 'kuch nahi bhai bas corridor mein ghoorne ke chakkar mein haha, 4 ladke suspend ho gaye' },
       { speaker: 'B', text: 'bhai epic kalesh miss ho gaya mera yaar 😂😭' },
+      { speaker: 'A', text: 'aur bhi bada scene hua hai, par yahan chat pe nahi bata sakta bhai sab padh lenge... voice chat pe aaja wahan bolta hu 💀' },
+      { speaker: 'B', text: 'haan sahi bola, chat pe risk hai... ruk mic on kar raha hu aaja voice pe' },
     ],
   },
   {
@@ -353,6 +355,8 @@ export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
       { speaker: 'B', text: 'kya baat kar raha hai?? bhai usne kya bola fir? 😭' },
       { speaker: 'A', text: 'bhai ladka sharma ke bag leke bhaag gaya waha se seedha lmao' },
       { speaker: 'B', text: 'hahaha bhai legendary moment ban gaya ye toh 💀😂' },
+      { speaker: 'A', text: 'uske baad jo hua na wo yahan chat pe type nahi kar sakta... voice chat pe aaja sab batata hu 🤫' },
+      { speaker: 'B', text: 'arre curiosity mat badha yaar, chal mic on kar wahan aate hain' },
     ],
   },
   {
@@ -365,6 +369,8 @@ export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
       { speaker: 'B', text: 'pakda gaya kya koi? 😂' },
       { speaker: 'A', text: 'nahi bhai koi naam nahi le raha tha, sabko aadhi chutti tak khada rakha 💀' },
       { speaker: 'B', text: 'bach gaye beta tum log haha, coaching mein bhi yahi chal raha hai' },
+      { speaker: 'A', text: 'kisne chipkaya tha mujhe pata hai, par yahan chat pe nahi bol sakta... voice chat pe aana mast kissa hai 😂' },
+      { speaker: 'B', text: 'arre bhai naam bata na jaldi! chal voice chat pe chalte hain' },
     ],
   },
   {
@@ -375,7 +381,8 @@ export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
       { speaker: 'B', text: 'arre bhai wo toh lunch break ke baad se gayab ho gaya 💀' },
       { speaker: 'A', text: 'kanjoos hai bhai ek number ka, samosa khilane ke time pet dard ka natak karta hai 😂' },
       { speaker: 'B', text: 'aglee baar class ke gate pe hi gherenge usko, bina treat ke jaane nahi denge' },
-      { speaker: 'A', text: 'haan bhai agle hafte momos corner pe pakka kalesh hoga lol' },
+      { speaker: 'A', text: 'wo kiske sath party kar raha tha shaam ko pata chala mujhe, yahan chat pe nahi bataunga... voice chat pe aaja 💀' },
+      { speaker: 'B', text: 'sach mein kisi ke sath tha kya?! ruk mic on karta hu turant' },
     ],
   },
   {
@@ -388,6 +395,8 @@ export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
       { speaker: 'B', text: 'bhai kiski baat kar raha hai sach mein?! kisko chot lagi?' },
       { speaker: 'A', text: 'chot toh nahi aayi par thele wale ne jo usko sabke samne sunaya na haha' },
       { speaker: 'B', text: 'bhai uski toh reel ban gayi hogi ab tak pakka 😂' },
+      { speaker: 'A', text: 'bhai banda apna hi dost tha, yahan chat pe naam nahi le sakta... voice chat pe aaja batata hu kaun tha 😂' },
+      { speaker: 'B', text: 'oye hoye apna hi koi tha?! aaja voice pe jaldi mic on kar' },
     ],
   },
   {
@@ -398,7 +407,8 @@ export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
       { speaker: 'B', text: 'abey kaunsi story? maine kuch like nahi kiya bhai 😂' },
       { speaker: 'A', text: 'jhooth mat bol notifications sab dikhte hain haha' },
       { speaker: 'B', text: 'chal be game pe dhyan de, yaha goti bachaa le pehle 💀' },
-      { speaker: 'A', text: 'topic change mat kar bhai bata jaldi 😂' },
+      { speaker: 'A', text: 'ye sab baatein yahan text chat pe nahi kar sakte bhai, privacy naam ki cheez hai... voice chat pe aaja 💀' },
+      { speaker: 'B', text: 'haan theek hai wahan sab clear karta hu, chal voice pe aaja' },
     ],
   },
   {
@@ -411,6 +421,8 @@ export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
       { speaker: 'B', text: 'arre bhai kiski himmat ho gayi itni? pata chala kisne rakha? 👀' },
       { speaker: 'A', text: 'teachers CCTV check karne gaye par camera hi band nikla 💀' },
       { speaker: 'B', text: 'bhai 100% backbenchers mein se hi koi hoga dekhna haha' },
+      { speaker: 'A', text: 'mujhe pakka pata hai kisne rakha, par chat pe bilkul leak nahi kar sakta... mic khol voice chat pe aaja' },
+      { speaker: 'B', text: 'bhai suspense mat bana, chal mic on kar wahan milte hain 😂' },
     ],
   },
   {
@@ -423,6 +435,8 @@ export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
       { speaker: 'B', text: 'fir kya hua? hospital gaya kya seedha? 😭' },
       { speaker: 'A', text: '2 ghante se washroom ke bahar line lagaye baitha hai lmao' },
       { speaker: 'B', text: 'bhai 100 rupaye ki bet ke chakkar mein kya kya karte hain log haha' },
+      { speaker: 'A', text: 'warden ne dekh liya aur jo hungama hua na, yahan type nahi kar sakta... voice chat pe aaja batata hu 💀' },
+      { speaker: 'B', text: 'warden bhi aa gaya tha kya?! haha ruk mic on karke sunta hu' },
     ],
   },
   {
@@ -433,7 +447,8 @@ export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
       { speaker: 'B', text: 'arre 15 km door phek diya bhai, subah 6 baje nikalna padega 😭' },
       { speaker: 'A', text: 'humara center toh wahi purana school hai jahan fan bhi nahi chalta dhang se 💀' },
       { speaker: 'B', text: 'bhai waha toh garmi se hi aadha dimaag udd jayega apna' },
-      { speaker: 'A', text: 'pani ki bottle leke aana 2-2 pehle hi bol raha hu 😂' },
+      { speaker: 'A', text: 'ek jugaad pata chala hai exam ka, par chat pe bolna safe nahi hai... voice chat pe aaja chupchap 🤫' },
+      { speaker: 'B', text: 'arre bhai kya jugaad hai?! jaldi aaja voice pe baat karte hain' },
     ],
   },
   {
@@ -446,6 +461,8 @@ export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
       { speaker: 'B', text: 'hahaha warden ne pakad liya kya? 😭' },
       { speaker: 'A', text: 'warden ne mic pe bol diya "seat 14 kripya uth jayein" poori library hans padi lmao' },
       { speaker: 'B', text: 'bhai sharam se mar gaya hoga bechara 😂' },
+      { speaker: 'A', text: 'ankit ne baad mein warden ko kya bola wo yahan chat pe nahi likh sakta haha... voice chat pe aana mast hasenge' },
+      { speaker: 'B', text: 'kya bol diya usne?! chal voice chat pe aa mic on kar' },
     ],
   },
   {
@@ -456,7 +473,8 @@ export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
       { speaker: 'B', text: 'arre mummy ko bola bukhar hai, aaram kar raha tha 🤫' },
       { speaker: 'A', text: 'aur shaam ko market mein burger khate kisko dekha tha maine? 😂' },
       { speaker: 'B', text: 'shhh chup kar bhai, mummy ke samne mat bol dio 💀' },
-      { speaker: 'A', text: 'treat dega tabhi chup rahunga beta haha' },
+      { speaker: 'A', text: 'tu akela nahi tha tere sath kaun tha wo yahan chat pe nahi bolunga... voice chat pe aaja pehle 💀' },
+      { speaker: 'B', text: 'arre bhai bhai aisi baatein yahan mat bol! mic khol voice chat pe aaja turant' },
     ],
   },
   {
@@ -469,6 +487,8 @@ export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
       { speaker: 'B', text: 'song selection pe bhai, aadhi group ko punjabi chahiye aur aadhi ko bollywood' },
       { speaker: 'A', text: 'hahaha teachers alag hi pareshan ho rahe honge' },
       { speaker: 'B', text: 'wo toh bol rahe the cancel hi kar denge pura performance lol' },
+      { speaker: 'A', text: 'stage ke peeche aur bhi bada drama hua hai, yahan chat pe sab padh lenge... voice chat pe aaja poora scene sunata hu' },
+      { speaker: 'B', text: 'sahi baat hai chat pe nahi bolte, aaja voice chat pe connect karte hain' },
     ],
   },
 ];

@@ -148,6 +148,18 @@ describe('walletStore & economy math', () => {
     expect(story.lines.length).toBeGreaterThanOrEqual(4);
     expect(story.lines.some((l) => l.speaker === 'A')).toBe(true);
     expect(story.lines.some((l) => l.speaker === 'B')).toBe(true);
+
+    // Verify every gossip story concludes with voice chat / mic transition
+    for (const s of BOT_GOSSIP_STORIES) {
+      const lastLine = s.lines[s.lines.length - 1].text.toLowerCase();
+      const secondLastLine = s.lines[s.lines.length - 2].text.toLowerCase();
+      const mentionsVoiceOrMic =
+        lastLine.includes('voice') ||
+        lastLine.includes('mic') ||
+        secondLastLine.includes('voice') ||
+        secondLastLine.includes('mic');
+      expect(mentionsVoiceOrMic).toBe(true);
+    }
   });
 
   it('notifies registered server sync handler for wallet mutations', () => {
