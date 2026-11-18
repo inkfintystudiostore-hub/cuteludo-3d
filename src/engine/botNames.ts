@@ -84,23 +84,32 @@ export function pickUniqueBotNames(count: number, exclude = ''): string[] {
   return result;
 }
 
-export type BotEmoteMood = 'capture' | 'captured' | 'six' | 'home' | 'user_lucky' | 'user_home';
+export type BotEmoteMood = 'capture' | 'captured' | 'six' | 'home' | 'win' | 'user_lucky' | 'user_home';
 
 const MOOD_EMOTES: Record<BotEmoteMood, readonly RoomEmoteId[]> = {
-  capture: ['dogdance', 'huskydance', 'minionkiss', 'laugh'],
-  captured: ['angry', 'grumpy', 'sadhamster', 'dogshock'],
+  capture: ['laugh'],
+  captured: ['sadhamster'],
+  home: ['laugh'],
+  win: ['laugh'],
   six: ['wave', 'dogbeach', 'dogbleh', 'doghands'],
-  home: ['huskydance', 'dogdance', 'chihuahuaside', 'minionkiss'],
   user_lucky: ['dogsuspect', 'dogstare', 'grumpy', 'dogshock'],
   user_home: ['dogshock', 'sadhamster', 'angry', 'dogstare'],
 };
 
 export function pickBotEmote(mood: BotEmoteMood, random = Math.random): RoomEmoteId {
-  // 45% chance to pick any random GIF from all 16 for natural variety
+  // Hard user rule 1: Winning situation or capturing MUST ALWAYS use laughing GIF
+  if (mood === 'capture' || mood === 'home' || mood === 'win') {
+    return 'laugh';
+  }
+  // Hard user rule 2: Being captured MUST ALWAYS use crying GIF (sadhamster)
+  if (mood === 'captured') {
+    return 'sadhamster';
+  }
+  // 45% chance to pick any random GIF from all 16 for natural variety on other events
   if (random() < 0.45) {
     return ROOM_EMOTE_IDS[Math.floor(random() * ROOM_EMOTE_IDS.length)];
   }
-  const list = MOOD_EMOTES[mood];
+  const list = MOOD_EMOTES[mood] ?? ['wave'];
   return list[Math.floor(random() * list.length)];
 }
 
@@ -308,4 +317,162 @@ export function pickBotFightExchange(botAName: string, botBName: string, random 
     ],
   ];
   return scripts[Math.floor(random() * scripts.length)];
+}
+
+export interface BotGossipLine {
+  speaker: 'A' | 'B';
+  text: string;
+}
+
+export interface BotGossipStory {
+  id: string;
+  topic: string;
+  lines: readonly BotGossipLine[];
+}
+
+export const BOT_GOSSIP_STORIES: readonly BotGossipStory[] = [
+  {
+    id: 'school_lafda',
+    topic: 'school fight',
+    lines: [
+      { speaker: 'A', text: 'bhai aaj school mein kya hi bawaal ho gaya pata hai? 😂' },
+      { speaker: 'B', text: 'arre kya hua bhai? canteen mein koi lafda hua kya?' },
+      { speaker: 'A', text: 'arre 12th wale aur 11th walo ka full kalesh ho gaya principal room ke bahar 💀' },
+      { speaker: 'B', text: 'bhai sach mein?! kis baat pe lad gaye?' },
+      { speaker: 'A', text: 'kuch nahi bhai bas corridor mein ghoorne ke chakkar mein haha, 4 ladke suspend ho gaye' },
+      { speaker: 'B', text: 'bhai epic kalesh miss ho gaya mera yaar 😂😭' },
+    ],
+  },
+  {
+    id: 'canteen_proposal',
+    topic: 'school proposal',
+    lines: [
+      { speaker: 'A', text: 'oye sun ek mast gossip mili hai abhi 😂' },
+      { speaker: 'B', text: 'haan bol bol kiska naya scene chal raha hai?' },
+      { speaker: 'A', text: 'arre 11th wali ne aakash ko propose kar diya canteen ke samne 💀' },
+      { speaker: 'B', text: 'kya baat kar raha hai?? bhai usne kya bola fir? 😭' },
+      { speaker: 'A', text: 'bhai ladka sharma ke bag leke bhaag gaya waha se seedha lmao' },
+      { speaker: 'B', text: 'hahaha bhai legendary moment ban gaya ye toh 💀😂' },
+    ],
+  },
+  {
+    id: 'teacher_cheating_raid',
+    topic: 'exam cheating',
+    lines: [
+      { speaker: 'A', text: 'bhai physics wale sir ne aaj poori class ki le li 😭' },
+      { speaker: 'B', text: 'kyu bhai kya hua? surprise test tha kya?' },
+      { speaker: 'A', text: 'arre kisi ne desk ke neeche pura formula chart chipka rakha tha, sir ne sabke bag check karwa diye' },
+      { speaker: 'B', text: 'pakda gaya kya koi? 😂' },
+      { speaker: 'A', text: 'nahi bhai koi naam nahi le raha tha, sabko aadhi chutti tak khada rakha 💀' },
+      { speaker: 'B', text: 'bach gaye beta tum log haha, coaching mein bhi yahi chal raha hai' },
+    ],
+  },
+  {
+    id: 'birthday_treat_escape',
+    topic: 'birthday treat',
+    lines: [
+      { speaker: 'A', text: 'bhai kal rohit ka birthday tha na, treat manga usse?' },
+      { speaker: 'B', text: 'arre bhai wo toh lunch break ke baad se gayab ho gaya 💀' },
+      { speaker: 'A', text: 'kanjoos hai bhai ek number ka, samosa khilane ke time pet dard ka natak karta hai 😂' },
+      { speaker: 'B', text: 'aglee baar class ke gate pe hi gherenge usko, bina treat ke jaane nahi denge' },
+      { speaker: 'A', text: 'haan bhai agle hafte momos corner pe pakka kalesh hoga lol' },
+    ],
+  },
+  {
+    id: 'scooty_drift_fail',
+    topic: 'scooty stunt crash',
+    lines: [
+      { speaker: 'A', text: 'bhai kal market wale chowk pe dekha tune kya hua?' },
+      { speaker: 'B', text: 'nahi bhai kyu kya hua tha waha?' },
+      { speaker: 'A', text: 'ek banda nayi scooty pe drift maarne gaya aur seedha kachre ke dabbe mein ghus gaya 😭💀' },
+      { speaker: 'B', text: 'bhai kiski baat kar raha hai sach mein?! kisko chot lagi?' },
+      { speaker: 'A', text: 'chot toh nahi aayi par thele wale ne jo usko sabke samne sunaya na haha' },
+      { speaker: 'B', text: 'bhai uski toh reel ban gayi hogi ab tak pakka 😂' },
+    ],
+  },
+  {
+    id: 'insta_crush_scene',
+    topic: 'instagram crush story',
+    lines: [
+      { speaker: 'A', text: 'bhai kal insta pe kiski story like kar raha tha tu? 👀' },
+      { speaker: 'B', text: 'abey kaunsi story? maine kuch like nahi kiya bhai 😂' },
+      { speaker: 'A', text: 'jhooth mat bol notifications sab dikhte hain haha' },
+      { speaker: 'B', text: 'chal be game pe dhyan de, yaha goti bachaa le pehle 💀' },
+      { speaker: 'A', text: 'topic change mat kar bhai bata jaldi 😂' },
+    ],
+  },
+  {
+    id: 'anonymous_love_letter',
+    topic: 'love letter cctv',
+    lines: [
+      { speaker: 'A', text: 'oye sun ek baat bata, kisi ko boliyo mat lekin 🤫' },
+      { speaker: 'B', text: 'haan bol na bhai, secret safe hai mera' },
+      { speaker: 'A', text: 'aaj subah kisi ne priya ki desk pe chocolate aur anonymous letter rakh diya tha 😂' },
+      { speaker: 'B', text: 'arre bhai kiski himmat ho gayi itni? pata chala kisne rakha? 👀' },
+      { speaker: 'A', text: 'teachers CCTV check karne gaye par camera hi band nikla 💀' },
+      { speaker: 'B', text: 'bhai 100% backbenchers mein se hi koi hoga dekhna haha' },
+    ],
+  },
+  {
+    id: 'spicy_maggi_challenge',
+    topic: 'hostel challenge',
+    lines: [
+      { speaker: 'A', text: 'bhai hostel ke paas wali spicy maggi khayi tune nayi wali?' },
+      { speaker: 'B', text: 'wahi 50 mirchi wali? nahi bhai jaan pyaari hai mujhe 💀' },
+      { speaker: 'A', text: 'arre shubham ne bet lagayi thi aur poori plate kha gaya 😂' },
+      { speaker: 'B', text: 'fir kya hua? hospital gaya kya seedha? 😭' },
+      { speaker: 'A', text: '2 ghante se washroom ke bahar line lagaye baitha hai lmao' },
+      { speaker: 'B', text: 'bhai 100 rupaye ki bet ke chakkar mein kya kya karte hain log haha' },
+    ],
+  },
+  {
+    id: 'exam_center_drama',
+    topic: 'board center',
+    lines: [
+      { speaker: 'A', text: 'bhai kal board exam ka center kahan pada tera?' },
+      { speaker: 'B', text: 'arre 15 km door phek diya bhai, subah 6 baje nikalna padega 😭' },
+      { speaker: 'A', text: 'humara center toh wahi purana school hai jahan fan bhi nahi chalta dhang se 💀' },
+      { speaker: 'B', text: 'bhai waha toh garmi se hi aadha dimaag udd jayega apna' },
+      { speaker: 'A', text: 'pani ki bottle leke aana 2-2 pehle hi bol raha hu 😂' },
+    ],
+  },
+  {
+    id: 'library_snoring',
+    topic: 'library nap',
+    lines: [
+      { speaker: 'A', text: 'bhai kal library mein ankit ke sath jo hua dekha tune? 😂' },
+      { speaker: 'B', text: 'nahi main absent tha kal, kya hua?' },
+      { speaker: 'A', text: 'bhai wo moti si book ke peeche so raha tha, aur kharrate maarna shuru kar diya 💀' },
+      { speaker: 'B', text: 'hahaha warden ne pakad liya kya? 😭' },
+      { speaker: 'A', text: 'warden ne mic pe bol diya "seat 14 kripya uth jayein" poori library hans padi lmao' },
+      { speaker: 'B', text: 'bhai sharam se mar gaya hoga bechara 😂' },
+    ],
+  },
+  {
+    id: 'fake_sick_leave',
+    topic: 'bunking caught',
+    lines: [
+      { speaker: 'A', text: 'bhai kal tu coaching kyu nahi aaya tha?' },
+      { speaker: 'B', text: 'arre mummy ko bola bukhar hai, aaram kar raha tha 🤫' },
+      { speaker: 'A', text: 'aur shaam ko market mein burger khate kisko dekha tha maine? 😂' },
+      { speaker: 'B', text: 'shhh chup kar bhai, mummy ke samne mat bol dio 💀' },
+      { speaker: 'A', text: 'treat dega tabhi chup rahunga beta haha' },
+    ],
+  },
+  {
+    id: 'dance_rehearsal_kalesh',
+    topic: 'annual function dance fight',
+    lines: [
+      { speaker: 'A', text: 'bhai annual day ke dance group ka final hua kuch?' },
+      { speaker: 'B', text: 'arre waha bhi alag ladayi chal rahi hai yaar 💀' },
+      { speaker: 'A', text: 'ab kis baat pe lad gaye log? 😂' },
+      { speaker: 'B', text: 'song selection pe bhai, aadhi group ko punjabi chahiye aur aadhi ko bollywood' },
+      { speaker: 'A', text: 'hahaha teachers alag hi pareshan ho rahe honge' },
+      { speaker: 'B', text: 'wo toh bol rahe the cancel hi kar denge pura performance lol' },
+    ],
+  },
+];
+
+export function pickBotGossipStory(random = Math.random): BotGossipStory {
+  return BOT_GOSSIP_STORIES[Math.floor(random() * BOT_GOSSIP_STORIES.length)];
 }

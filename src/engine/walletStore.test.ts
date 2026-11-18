@@ -14,7 +14,7 @@ import {
   useWalletStore,
 } from './walletStore';
 import { createRoomRecord, handleRoomAction, type RoomRecord } from '../../worker/roomLogic';
-import { TOTAL_NAME_COMBINATIONS, pickBotChatReply, pickBotEmote, pickRandomBotEmote, pickUniqueBotNames } from './botNames';
+import { TOTAL_NAME_COMBINATIONS, pickBotChatReply, pickBotEmote, pickRandomBotEmote, pickUniqueBotNames, pickBotGossipStory, BOT_GOSSIP_STORIES } from './botNames';
 import { createGame } from './ludoRules';
 
 describe('walletStore & economy math', () => {
@@ -128,10 +128,26 @@ describe('walletStore & economy math', () => {
     expect(names).toHaveLength(3);
     expect(new Set(names).size).toBe(3);
     expect(names).not.toContain('Aarav Sharma');
-    expect(pickBotEmote('capture')).toBeTruthy();
+
+    // Hard requirement: Winning situation & capture MUST ALWAYS use laughing GIF
+    for (let i = 0; i < 20; i++) {
+      expect(pickBotEmote('capture')).toBe('laugh');
+      expect(pickBotEmote('home')).toBe('laugh');
+      expect(pickBotEmote('win')).toBe('laugh');
+      // Hard requirement: Piece captured MUST ALWAYS use crying GIF (sadhamster)
+      expect(pickBotEmote('captured')).toBe('sadhamster');
+    }
+
     expect(pickRandomBotEmote()).toBeTruthy();
     const reply = pickBotChatReply('hello bro', 'extrovert');
     expect(reply === null || reply.length > 2).toBe(true);
+
+    // Gossip stories verification
+    expect(BOT_GOSSIP_STORIES.length).toBeGreaterThanOrEqual(10);
+    const story = pickBotGossipStory();
+    expect(story.lines.length).toBeGreaterThanOrEqual(4);
+    expect(story.lines.some((l) => l.speaker === 'A')).toBe(true);
+    expect(story.lines.some((l) => l.speaker === 'B')).toBe(true);
   });
 
   it('notifies registered server sync handler for wallet mutations', () => {

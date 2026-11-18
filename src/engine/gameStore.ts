@@ -3,7 +3,7 @@
  * Cloudflare Durable Object WebSocket multiplayer rooms.
  */
 import { create } from 'zustand';
-import { getBotPersonality, pickBotChatReply, pickBotEmote, pickBotFightExchange, pickRandomBotEmote, type BotEmoteMood } from './botNames';
+import { getBotPersonality, pickBotChatReply, pickBotEmote, pickBotGossipStory, pickRandomBotEmote, type BotEmoteMood } from './botNames';
 import { useWalletStore } from './walletStore';
 import {
   HOME_PROGRESS,
@@ -215,6 +215,15 @@ let pendingSnapshot: RoomSnapshot | null = null;
 let lastAppliedSeq = 0;
 let activeRollAuthoritative: AuthoritativePostState | null = null;
 let pendingEventAuthoritative: AuthoritativePostState | null = null;
+let activeBotChatTimers: Array<ReturnType<typeof setTimeout>> = [];
+let lastBotChatTimestamp = 0;
+let isBotGossipActive = false;
+
+function clearBotChatTimers(): void {
+  activeBotChatTimers.forEach(clearTimeout);
+  activeBotChatTimers = [];
+  isBotGossipActive = false;
+}
 
 function clearPendingTimers(): void {
   clearTimeout(passTimer);
@@ -222,6 +231,7 @@ function clearPendingTimers(): void {
   clearTimeout(rollWatchdogTimer);
   clearTimeout(eventWatchdogTimer);
   clearTimeout(serverAckTimer);
+  clearBotChatTimers();
   passTimer = undefined;
   autoMoveTimer = undefined;
   rollWatchdogTimer = undefined;
@@ -720,7 +730,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           for (let i = 0; i < replyCount; i++) {
             const botTeam = botTeams[Math.floor(Math.random() * botTeams.length)];
             delayCursor += 7000 + Math.random() * 8000;
-            setTimeout(() => {
+            const timer = setTimeout(() => {
               const cur = get();
               if (cur.screen !== 'playing' || !cur.vsAi) return;
               const name = cur.botNames[botTeam] || TEAM_LABELS[botTeam];
@@ -733,7 +743,9 @@ export const useGameStore = create<GameStore>((set, get) => {
                 text,
                 ts: Date.now(),
               });
+              lastBotChatTimestamp = Date.now();
             }, delayCursor);
+            activeBotChatTimers.push(timer);
           }
         }
         return true;
@@ -1219,8 +1231,9 @@ export const useGameStore = create<GameStore>((set, get) => {
         const triggerBot = (team: TeamId | undefined, mood: BotEmoteMood, chance: number) => {
           if (!team || team === 'PINK' || Math.random() > chance) return;
           const prev = sNow.yardEmotes[team];
-          if (prev && Date.now() < prev.expiresAt + 2000) return;
-          const delayMs = 350 + Math.random() * 750;
+          const isMandatory = mood === 'capture' || mood === 'captured' || mood === 'home' || mood === 'win';
+          if (!isMandatory && prev && Date.now() < prev.expiresAt + 2000) return;
+          const delayMs = 350 + Math.random() * 600;
           setTimeout(() => {
             const cur = get();
             if (cur.screen !== 'playing' || cur.paused) return;
@@ -1228,11 +1241,14 @@ export const useGameStore = create<GameStore>((set, get) => {
           }, delayMs);
         };
         const maybeBotChat = (team: TeamId | undefined, chance: number) => {
-          if (!team || team === 'PINK' || Object.keys(sNow.botNames).length === 0 || Math.random() > chance) return;
-          const delayMs = 7000 + Math.random() * 8000;
-          setTimeout(() => {
+          if (!team || team === 'PINK' || Object.keys(sNow.botNames).length === 0) return;
+          if (isBotGossipActive) return;
+          if (Date.now() - lastBotChatTimestamp < 25_000) return;
+          if (Math.random() > chance) return;
+          const delayMs = 9000 + Math.random() * 11000;
+          const timer = setTimeout(() => {
             const cur = get();
-            if (cur.screen !== 'playing' || cur.paused) return;
+            if (cur.screen !== 'playing' || cur.paused || isBotGossipActive) return;
             const name = cur.botNames[team] || TEAM_LABELS[team];
             const text = pickBotChatReply(undefined, getBotPersonality(name));
             if (!text) return;
@@ -1243,54 +1259,74 @@ export const useGameStore = create<GameStore>((set, get) => {
               text,
               ts: Date.now(),
             });
+            lastBotChatTimestamp = Date.now();
           }, delayMs);
+          activeBotChatTimers.push(timer);
         };
-        const maybeBotFight = () => {
+        const maybeBotGossip = () => {
           if (botTeams.length < 2 || Object.keys(sNow.botNames).length === 0) return;
-          // ~35% chance per game (~3.5 times per 10 games), only once per match
-          if (sNow.chatMessages.some((m) => m.id.startsWith('fight-')) || Math.random() > 0.35) return;
+          if (isBotGossipActive) return;
+          if (Date.now() - lastBotChatTimestamp < 35_000) return;
+          const existingGossip = sNow.chatMessages.filter((m) => m.id.startsWith('gossip-')).length;
+          if (existingGossip >= 12 || Math.random() > 0.45) return;
+
           const botA = botTeams[0];
           const botB = botTeams[1];
           const nameA = sNow.botNames[botA] || TEAM_LABELS[botA];
           const nameB = sNow.botNames[botB] || TEAM_LABELS[botB];
-          const lines = pickBotFightExchange(nameA, nameB);
-          const speakers: TeamId[] = [botA, botB, botA];
-          let delayCursor = 0;
-          lines.forEach((line, idx) => {
-            delayCursor += 7000 + Math.random() * 6000;
-            const speaker = speakers[idx];
-            setTimeout(() => {
+          const story = pickBotGossipStory();
+          isBotGossipActive = true;
+
+          // Human reading & typing delay: 8-14s for opening message
+          let delayCursor = 8000 + Math.random() * 6000;
+          story.lines.forEach((line, idx) => {
+            const speakerTeam = line.speaker === 'A' ? botA : botB;
+            const speakerName = line.speaker === 'A' ? nameA : nameB;
+            const timer = setTimeout(() => {
               const cur = get();
-              if (cur.screen !== 'playing' || cur.paused) return;
+              if (cur.screen !== 'playing' || cur.paused) {
+                isBotGossipActive = false;
+                return;
+              }
               cur.pushChatMessage({
-                id: `fight-${Date.now()}-${idx}`,
-                team: speaker,
-                senderName: cur.botNames[speaker] || TEAM_LABELS[speaker],
-                text: line,
+                id: `gossip-${Date.now()}-${idx}`,
+                team: speakerTeam,
+                senderName: speakerName,
+                text: line.text,
                 ts: Date.now(),
               });
+              lastBotChatTimestamp = Date.now();
+              if (idx === story.lines.length - 1) {
+                isBotGossipActive = false;
+              }
             }, delayCursor);
+            activeBotChatTimers.push(timer);
+            // Realistic reading & typing gap: 11-20s between turns!
+            delayCursor += 11000 + Math.random() * 9000;
           });
         };
         if (lastEvent.type === 'CAPTURE') {
           const attacker = teamFromPawn(lastEvent.attackerId);
           const victim = teamFromPawn(lastEvent.victimId);
-          triggerBot(attacker, 'capture', 0.75);
-          triggerBot(victim, 'captured', 0.8);
+          // Hard user rule: Attacker bot ALWAYS laughing GIF!
+          triggerBot(attacker, 'capture', 1.0);
+          // Hard user rule: Victim bot whose piece was captured ALWAYS crying GIF (sadhamster)!
+          triggerBot(victim, 'captured', 1.0);
           triggerBot(pickRandomBot(attacker === 'PINK' ? victim : attacker), 'user_lucky', 0.45);
-          maybeBotChat(attacker !== 'PINK' ? attacker : victim, 0.35);
-          maybeBotFight();
+          maybeBotChat(attacker !== 'PINK' ? attacker : victim, 0.25);
+          maybeBotGossip();
         } else if (lastEvent.type === 'REACH_HOME') {
           const mover = teamFromPawn(lastEvent.pawnId);
           if (mover === 'PINK') {
             const reactor = pickRandomBot();
             triggerBot(reactor, 'user_home', 0.6);
-            maybeBotChat(reactor, 0.35);
+            maybeBotChat(reactor, 0.25);
           } else {
-            triggerBot(mover, 'home', 0.75);
+            // Hard user rule: Winning situation ALWAYS laughing GIF!
+            triggerBot(mover, 'home', 1.0);
             triggerBot(pickRandomBot(mover), 'user_home', 0.4);
           }
-          maybeBotFight();
+          maybeBotGossip();
         } else if (lastEvent.type === 'SPAWN_6') {
           const mover = teamFromPawn(lastEvent.pawnId);
           if (mover === 'PINK') triggerBot(pickRandomBot(), 'user_lucky', 0.35);
@@ -1323,6 +1359,24 @@ export const useGameStore = create<GameStore>((set, get) => {
         isAnimating: false,
         turnDeadlineAt: nextDeadline,
       });
+      if (finalGame.phase === 'GAME_OVER' && curState.vsAi && !curState.room?.online && !curState.simulation) {
+        finalGame.winners.forEach((winTeam) => {
+          if (winTeam !== 'PINK') {
+            setTimeout(() => {
+              const cur = get();
+              if (cur.screen === 'playing') cur.triggerYardEmote(winTeam, pickBotEmote('win'));
+            }, 400);
+          }
+        });
+        finalGame.activeTeams.forEach((t) => {
+          if (t !== 'PINK' && !finalGame.winners.includes(t)) {
+            setTimeout(() => {
+              const cur = get();
+              if (cur.screen === 'playing') cur.triggerYardEmote(t, pickBotEmote('captured'));
+            }, 650);
+          }
+        });
+      }
       drainRemoteQueueOrReconcile();
     },
 
