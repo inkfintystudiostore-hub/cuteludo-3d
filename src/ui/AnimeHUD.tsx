@@ -503,18 +503,19 @@ function StatusBadge({ team }: { team: TeamId }) {
   const home = useGameStore((s) => s.game.pawns.filter((p) => p.team === team && p.progress === HOME_PROGRESS).length);
   const yard = useGameStore((s) => s.game.pawns.filter((p) => p.team === team && p.progress === YARD_PROGRESS).length);
   const botName = useGameStore((s) => s.botNames[team]);
+  const seat = room ? room.seats.find((s) => s.team === team) : undefined;
+  const isSpeaking = useVoiceStore((s) => Boolean(seat?.playerId && s.speakingIds[seat.playerId]));
   const onRight = corner === 'tr' || corner === 'br';
+
   if (!active) return <div style={{ gridArea: corner }} />;
 
   const rankIndex = rankings.indexOf(team);
   const rank = rankIndex >= 0 ? rankIndex + 1 : null;
-  const seat = room ? room.seats.find((s) => s.team === team) : undefined;
   const isMe = Boolean(room && room.myTeam === team);
   const isBot = room ? (seat?.occupant === 'bot' || Boolean(seat?.botTakeover)) : vsAi && team !== 'PINK' && !botName;
   const isHumanSeat = Boolean(room && seat?.occupant === 'human');
   const isOnlineHuman = Boolean(isHumanSeat && (isMe ? room?.online && seat?.connected : seat?.connected));
   const displayName = seat?.playerName || botName || TEAM_LABELS[team];
-  const isSpeaking = useVoiceStore((s) => Boolean(seat?.playerId && s.speakingIds[seat.playerId]));
   const presenceText = isHumanSeat ? (isOnlineHuman ? ', online' : ', offline') : '';
   const summary = `${displayName}${isMe ? ' (You)' : isBot ? ' (AI)' : ''}${presenceText}: ${home} of ${PAWNS_PER_TEAM} home, ${yard} in the yard${rank ? `, finished ${rank}` : isTurn ? ', current turn' : ''}`;
   return (
