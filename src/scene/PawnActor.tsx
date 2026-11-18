@@ -13,6 +13,7 @@ import {
   HOME_PICNIC_SCALE,
   HOME_PROGRESS,
   TILE_SURFACE_Y,
+  YARD_PROGRESS,
   getBoardYawForTeam,
   getPawnWorldPosition,
   type Pawn,
@@ -29,7 +30,7 @@ import {
   HOP_DURATION,
   SPAWN_DURATION,
 } from './animationTiming';
-import { PICNIC_ACTIVITIES, type CapturePose } from './ChibiFigure';
+import { HOME_ACTIVITIES, type CapturePose } from './ChibiFigure';
 import { PawnModel, type PawnClip } from './PawnModel';
 
 const TAU = Math.PI * 2;
@@ -110,8 +111,10 @@ export function PawnActor({ pawn, boardYaw: propBoardYaw }: { pawn: Pawn; boardY
   const anchorTeam = useGameStore((s) => getLocalAnchorTeam(s));
   const boardYaw = propBoardYaw ?? getBoardYawForTeam(anchorTeam);
 
-  const isHome = pawn.progress === HOME_PROGRESS;
-  const picnicActivity = PICNIC_ACTIVITIES[pawn.slot % PICNIC_ACTIVITIES.length];
+  const isHomeGoal = pawn.progress === HOME_PROGRESS;
+  const isInYard = pawn.progress === YARD_PROGRESS;
+  const isAtHome = !travelling && (isHomeGoal || isInYard);
+  const homeActivity = HOME_ACTIVITIES[pawn.slot % HOME_ACTIVITIES.length];
   const finalRank = phase === 'GAME_OVER' ? rankings.indexOf(pawn.team) + 1 : null;
   const validRank = finalRank && finalRank > 0 ? finalRank : null;
   const isLastPlace = Boolean(validRank && rankings.length > 1 && validRank === rankings.length);
@@ -120,9 +123,9 @@ export function PawnActor({ pawn, boardYaw: propBoardYaw }: { pawn: Pawn; boardY
     () => getPawnWorldPosition(pawn, pawns, (a, b) => areAllies(mode, a, b), boardYaw),
     [pawn, pawns, mode, boardYaw],
   );
-  const mood: SharedState | 'picnic' = isHome ? 'picnic' : layout.sharedState;
+  const mood: SharedState | 'picnic' = isHomeGoal ? 'picnic' : layout.sharedState;
   const restScale = layout.scale;
-  const clip: PawnClip = travelling ? 'Hop' : isHome ? 'Picnic' : mood === 'coffee' ? 'SipCoffee' : 'Idle';
+  const clip: PawnClip = travelling ? 'Hop' : isAtHome ? 'Picnic' : mood === 'coffee' ? 'SipCoffee' : 'Idle';
 
   // Settle into the committed layout whenever the board is at rest, then start the idle loop.
   useEffect(() => {
@@ -512,8 +515,8 @@ export function PawnActor({ pawn, boardYaw: propBoardYaw }: { pawn: Pawn; boardY
             holdingCup={mood === 'coffee'}
             isMovable={movable}
             isHovered={isHovered}
-            isSitting={isHome}
-            picnicActivity={picnicActivity}
+            isSitting={isAtHome}
+            picnicActivity={homeActivity}
             finalRank={validRank}
             isLastPlace={isLastPlace}
             isLaughing={capturePose === 'laugh'}
