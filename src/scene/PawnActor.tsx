@@ -9,9 +9,17 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import gsap from 'gsap';
 import * as THREE from 'three';
-import { HOME_PICNIC_SCALE, HOME_PROGRESS, TILE_SURFACE_Y, getPawnWorldPosition, type Pawn, type SharedState } from '../engine/boardMap';
+import {
+  HOME_PICNIC_SCALE,
+  HOME_PROGRESS,
+  TILE_SURFACE_Y,
+  getBoardYawForTeam,
+  getPawnWorldPosition,
+  type Pawn,
+  type SharedState,
+} from '../engine/boardMap';
 import { areAllies } from '../engine/ludoRules';
-import { canLocalPlayerAct, useGameStore } from '../engine/gameStore';
+import { canLocalPlayerAct, getLocalAnchorTeam, useGameStore } from '../engine/gameStore';
 import { soundManager } from '../utils/soundManager';
 import {
   CAPTURE_DIZZY_DURATION,
@@ -63,7 +71,7 @@ function buildIdle(tilt: THREE.Group, mood: SharedState | 'picnic', stagger: num
   return null;
 }
 
-export function PawnActor({ pawn }: { pawn: Pawn }) {
+export function PawnActor({ pawn, boardYaw: propBoardYaw }: { pawn: Pawn; boardYaw?: number }) {
   const rootRef = useRef<THREE.Group>(null);
   const tiltRef = useRef<THREE.Group>(null);
   const squashRef = useRef<THREE.Group>(null);
@@ -99,13 +107,19 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
   const pointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
   const lastSelectAtRef = useRef(0);
 
+  const anchorTeam = useGameStore((s) => getLocalAnchorTeam(s));
+  const boardYaw = propBoardYaw ?? getBoardYawForTeam(anchorTeam);
+
   const isHome = pawn.progress === HOME_PROGRESS;
   const picnicActivity = PICNIC_ACTIVITIES[pawn.slot % PICNIC_ACTIVITIES.length];
   const finalRank = phase === 'GAME_OVER' ? rankings.indexOf(pawn.team) + 1 : null;
   const validRank = finalRank && finalRank > 0 ? finalRank : null;
   const isLastPlace = Boolean(validRank && rankings.length > 1 && validRank === rankings.length);
 
-  const layout = useMemo(() => getPawnWorldPosition(pawn, pawns, (a, b) => areAllies(mode, a, b)), [pawn, pawns, mode]);
+  const layout = useMemo(
+    () => getPawnWorldPosition(pawn, pawns, (a, b) => areAllies(mode, a, b), boardYaw),
+    [pawn, pawns, mode, boardYaw],
+  );
   const mood: SharedState | 'picnic' = isHome ? 'picnic' : layout.sharedState;
   const restScale = layout.scale;
   const clip: PawnClip = travelling ? 'Hop' : isHome ? 'Picnic' : mood === 'coffee' ? 'SipCoffee' : 'Idle';
@@ -373,10 +387,11 @@ export function PawnActor({ pawn }: { pawn: Pawn }) {
         takeStage();
         setTravelling(false);
         soundManager.playVictory();
-        // Settle straight onto the picnic blanket at small sitting scale (no dancing).
+        // Settle straight onto the picnic blanket at small sitting scale facing the player.
         timeline = gsap
           .timeline({ onComplete: done })
           .to(root.scale, { x: HOME_PICNIC_SCALE, y: HOME_PICNIC_SCALE, z: HOME_PICNIC_SCALE, duration: 0.3, ease: 'power2.out' }, 0)
+          .to(root.rotation, { y: nearestAngle(root.rotation.y, layout.rotationY), duration: 0.3, ease: 'power2.out' }, 0)
           .to(squash.scale, { ...SQUASH, duration: 0.08, ease: 'power1.out' }, 0)
           .to(squash.scale, { ...NEUTRAL, duration: 0.25, ease: 'elastic.out(1, 0.45)' }, 0.08);
         break;

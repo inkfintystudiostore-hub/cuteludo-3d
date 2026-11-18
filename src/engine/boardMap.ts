@@ -278,10 +278,11 @@ export function getPawnWorldPosition(
   pawn: Pawn,
   allPawns: readonly Pawn[],
   areAllies: (a: TeamId, b: TeamId) => boolean = (a, b) => a === b,
+  boardYaw = 0,
 ): PawnWorldPosition {
   if (pawn.progress === YARD_PROGRESS) {
     const slot = YARD_SLOT_POSITIONS[pawn.team][pawn.slot];
-    return { ...slot, scale: 1, rotationY: 0, sharedState: 'solo' }; // waiting pawns face the camera
+    return { ...slot, scale: 1, rotationY: -boardYaw, sharedState: 'solo' }; // waiting pawns face the camera/player
   }
 
   if (pawn.progress === HOME_PROGRESS) {
@@ -289,7 +290,7 @@ export function getPawnWorldPosition(
     return {
       ...seat,
       scale: HOME_PICNIC_SCALE,
-      rotationY: facing(-seat.x, -seat.z),
+      rotationY: -boardYaw, // finished pawns face the camera/player
       sharedState: 'solo',
     };
   }

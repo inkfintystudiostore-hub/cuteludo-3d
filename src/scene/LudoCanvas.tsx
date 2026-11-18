@@ -285,7 +285,7 @@ export function LudoCanvas() {
         <group rotation-y={boardYaw}>
           <BoardMesh boardYaw={boardYaw} />
           {pawns.map((pawn) => (
-            <PawnActor key={pawn.id} pawn={pawn} />
+            <PawnActor key={pawn.id} pawn={pawn} boardYaw={boardYaw} />
           ))}
           <AnimeEffects />
         </group>
