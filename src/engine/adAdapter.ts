@@ -4,6 +4,8 @@
  * falls back to an in-app preview callback for standalone web/dev.
  */
 
+import { PokiSDKApi, runWithPokiAdLifecycle } from './pokiSdk';
+
 interface H5RewardedConfig {
   type: 'reward';
   name: string;
@@ -24,10 +26,7 @@ interface H5InterstitialConfig {
 type H5AdBreakConfig = H5RewardedConfig | H5InterstitialConfig;
 
 interface PortalWindow extends Window {
-  PokiSDK?: {
-    rewardedBreak?: () => Promise<boolean>;
-    commercialBreak?: () => Promise<void>;
-  };
+  PokiSDK?: PokiSDKApi;
   CrazyGames?: {
     SDK?: {
       ad?: {
@@ -91,7 +90,8 @@ export async function showRewardedAd(): Promise<boolean> {
 
   if (win.PokiSDK?.rewardedBreak) {
     try {
-      return await win.PokiSDK.rewardedBreak();
+      const rewardedBreak = win.PokiSDK.rewardedBreak.bind(win.PokiSDK);
+      return await runWithPokiAdLifecycle(() => rewardedBreak());
     } catch {
       return false;
     }
@@ -158,7 +158,8 @@ export async function showInterstitialAd(
 
   if (win.PokiSDK?.commercialBreak) {
     try {
-      await win.PokiSDK.commercialBreak();
+      const commercialBreak = win.PokiSDK.commercialBreak.bind(win.PokiSDK);
+      await runWithPokiAdLifecycle(() => commercialBreak());
       return true;
     } catch {
       return true;

@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { showInterstitialAd } from '../engine/adAdapter';
+import { IS_POKI_BUILD } from '../engine/portalConfig';
 import { TEAM_COLORS, TEAM_LABELS, type TeamId } from '../engine/boardMap';
 import { SIMULATION_SPEEDS, useGameStore, type SimulationSpeed } from '../engine/gameStore';
 import { pickUniqueBotNames } from '../engine/botNames';
@@ -638,13 +639,15 @@ export function HomeLobbyModal() {
                   </span>
                 )}
               </span>
-              <button
-                type="button"
-                onClick={() => setShopOpen(true)}
-                className={`inline-flex min-h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-[#ff8fab] px-2 py-0.5 text-[11px] font-bold uppercase sm:px-2.5 sm:text-xs ${INK_BTN}`}
-              >
-                + Shop
-              </button>
+              {!IS_POKI_BUILD && (
+                <button
+                  type="button"
+                  onClick={() => setShopOpen(true)}
+                  className={`inline-flex min-h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-[#ff8fab] px-2 py-0.5 text-[11px] font-bold uppercase sm:px-2.5 sm:text-xs ${INK_BTN}`}
+                >
+                  + Shop
+                </button>
+              )}
               <button
                 type="button"
                 onClick={openWheel}
@@ -1232,14 +1235,16 @@ export function HomeLobbyModal() {
               ⚖️ Terms
             </button>
           </div>
-          <a
-            href="https://inkfinitystudio.store"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:underline"
-          >
-            Inkfinity Studio ↗
-          </a>
+          {!IS_POKI_BUILD && (
+            <a
+              href="https://inkfinitystudio.store"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline"
+            >
+              Inkfinity Studio ↗
+            </a>
+          )}
         </footer>
       </div>
       <Suspense fallback={null}>
@@ -1247,7 +1252,7 @@ export function HomeLobbyModal() {
           <LegalInfoModal initialTab={legalModalTab} onClose={() => setLegalModalTab(null)} />
         )}
         {wheelOpen && <WheelOfFortuneModal onClose={() => setWheelOpen(false)} />}
-        {shopOpen && <CoinShopModal onClose={() => setShopOpen(false)} />}
+        {!IS_POKI_BUILD && shopOpen && <CoinShopModal onClose={() => setShopOpen(false)} />}
       </Suspense>
       {matchingPublic && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-ink/45 p-3 backdrop-blur-xs">
@@ -1325,7 +1330,7 @@ export function HomeLobbyModal() {
               ✕
             </button>
             <img
-              src="/icons/icon-192.png"
+              src={`${import.meta.env.BASE_URL}icons/icon-192.png`}
               alt="Chibi Ludo 3D"
               className="size-16 rounded-2xl border-2 border-ink shadow-ink-sm"
             />

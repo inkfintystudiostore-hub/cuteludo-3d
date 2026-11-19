@@ -12,23 +12,25 @@ export interface EmoteDef {
   aspect: number;
 }
 
+const ASSET_BASE = import.meta.env.BASE_URL;
+
 export const EMOTES: readonly EmoteDef[] = [
-  { id: 'laugh', label: 'Laugh & Point', src: '/emotes/laugh.mp4', thumb: '/emotes/laugh_thumb.jpg', durationMs: 3300, aspect: 400 / 400 },
-  { id: 'loading', label: 'Loading Brain', src: '/emotes/loading.mp4', thumb: '/emotes/loading_thumb.jpg', durationMs: 3600, aspect: 200 / 188 },
-  { id: 'wave', label: 'Cutie Wave', src: '/emotes/wave.mp4', thumb: '/emotes/wave_thumb.jpg', durationMs: 2900, aspect: 200 / 190 },
-  { id: 'grumpy', label: 'Grumpy Side-Eye', src: '/emotes/grumpy.mp4', thumb: '/emotes/grumpy_thumb.jpg', durationMs: 3933, aspect: 200 / 266 },
-  { id: 'angry', label: 'Angry Glare', src: '/emotes/angry.mp4', thumb: '/emotes/angry_thumb.jpg', durationMs: 1760, aspect: 464 / 464 },
-  { id: 'chihuahuaside', label: 'Side-Eye Pup', src: '/emotes/chihuahuaside.mp4', thumb: '/emotes/chihuahuaside_thumb.jpg', durationMs: 3000, aspect: 192 / 192 },
-  { id: 'minionkiss', label: 'Minion Kiss', src: '/emotes/minionkiss.mp4', thumb: '/emotes/minionkiss_thumb.jpg', durationMs: 1800, aspect: 200 / 112 },
-  { id: 'dogbleh', label: 'Doggo Blehh', src: '/emotes/dogbleh.mp4', thumb: '/emotes/dogbleh_thumb.jpg', durationMs: 2000, aspect: 480 / 476 },
-  { id: 'dogstare', label: 'Standing Stare', src: '/emotes/dogstare.mp4', thumb: '/emotes/dogstare_thumb.jpg', durationMs: 3400, aspect: 400 / 400 },
-  { id: 'dogbeach', label: 'Beach Vibe', src: '/emotes/dogbeach.mp4', thumb: '/emotes/dogbeach_thumb.jpg', durationMs: 3933, aspect: 192 / 128 },
-  { id: 'dogdance', label: 'Happy Dog Dance', src: '/emotes/dogdance.mp4', thumb: '/emotes/dogdance_thumb.jpg', durationMs: 12000, aspect: 192 / 240 },
-  { id: 'dogsuspect', label: 'Side-Eye Dog', src: '/emotes/dogsuspect.mp4', thumb: '/emotes/dogsuspect_thumb.jpg', durationMs: 7400, aspect: 192 / 192 },
-  { id: 'doghands', label: 'Hold Up Chill', src: '/emotes/doghands.mp4', thumb: '/emotes/doghands_thumb.jpg', durationMs: 4000, aspect: 200 / 200 },
-  { id: 'dogshock', label: 'Shook Pup', src: '/emotes/dogshock.mp4', thumb: '/emotes/dogshock_thumb.jpg', durationMs: 1933, aspect: 200 / 170 },
-  { id: 'sadhamster', label: 'Sad Hamster', src: '/emotes/sadhamster.mp4', thumb: '/emotes/sadhamster_thumb.jpg', durationMs: 7600, aspect: 192 / 192 },
-  { id: 'huskydance', label: 'Chikiri Husky', src: '/emotes/huskydance.mp4', thumb: '/emotes/huskydance_thumb.jpg', durationMs: 8133, aspect: 498 / 332 },
+  { id: 'laugh', label: 'Laugh & Point', src: `${ASSET_BASE}emotes/laugh.mp4`, thumb: `${ASSET_BASE}emotes/laugh_thumb.jpg`, durationMs: 3300, aspect: 400 / 400 },
+  { id: 'loading', label: 'Loading Brain', src: `${ASSET_BASE}emotes/loading.mp4`, thumb: `${ASSET_BASE}emotes/loading_thumb.jpg`, durationMs: 3600, aspect: 200 / 188 },
+  { id: 'wave', label: 'Cutie Wave', src: `${ASSET_BASE}emotes/wave.mp4`, thumb: `${ASSET_BASE}emotes/wave_thumb.jpg`, durationMs: 2900, aspect: 200 / 190 },
+  { id: 'grumpy', label: 'Grumpy Side-Eye', src: `${ASSET_BASE}emotes/grumpy.mp4`, thumb: `${ASSET_BASE}emotes/grumpy_thumb.jpg`, durationMs: 3933, aspect: 200 / 266 },
+  { id: 'angry', label: 'Angry Glare', src: `${ASSET_BASE}emotes/angry.mp4`, thumb: `${ASSET_BASE}emotes/angry_thumb.jpg`, durationMs: 1760, aspect: 464 / 464 },
+  { id: 'chihuahuaside', label: 'Side-Eye Pup', src: `${ASSET_BASE}emotes/chihuahuaside.mp4`, thumb: `${ASSET_BASE}emotes/chihuahuaside_thumb.jpg`, durationMs: 3000, aspect: 192 / 192 },
+  { id: 'minionkiss', label: 'Minion Kiss', src: `${ASSET_BASE}emotes/minionkiss.mp4`, thumb: `${ASSET_BASE}emotes/minionkiss_thumb.jpg`, durationMs: 1800, aspect: 200 / 112 },
+  { id: 'dogbleh', label: 'Doggo Blehh', src: `${ASSET_BASE}emotes/dogbleh.mp4`, thumb: `${ASSET_BASE}emotes/dogbleh_thumb.jpg`, durationMs: 2000, aspect: 480 / 476 },
+  { id: 'dogstare', label: 'Standing Stare', src: `${ASSET_BASE}emotes/dogstare.mp4`, thumb: `${ASSET_BASE}emotes/dogstare_thumb.jpg`, durationMs: 3400, aspect: 400 / 400 },
+  { id: 'dogbeach', label: 'Beach Vibe', src: `${ASSET_BASE}emotes/dogbeach.mp4`, thumb: `${ASSET_BASE}emotes/dogbeach_thumb.jpg`, durationMs: 3933, aspect: 192 / 128 },
+  { id: 'dogdance', label: 'Happy Dog Dance', src: `${ASSET_BASE}emotes/dogdance.mp4`, thumb: `${ASSET_BASE}emotes/dogdance_thumb.jpg`, durationMs: 12000, aspect: 192 / 240 },
+  { id: 'dogsuspect', label: 'Side-Eye Dog', src: `${ASSET_BASE}emotes/dogsuspect.mp4`, thumb: `${ASSET_BASE}emotes/dogsuspect_thumb.jpg`, durationMs: 7400, aspect: 192 / 192 },
+  { id: 'doghands', label: 'Hold Up Chill', src: `${ASSET_BASE}emotes/doghands.mp4`, thumb: `${ASSET_BASE}emotes/doghands_thumb.jpg`, durationMs: 4000, aspect: 200 / 200 },
+  { id: 'dogshock', label: 'Shook Pup', src: `${ASSET_BASE}emotes/dogshock.mp4`, thumb: `${ASSET_BASE}emotes/dogshock_thumb.jpg`, durationMs: 1933, aspect: 200 / 170 },
+  { id: 'sadhamster', label: 'Sad Hamster', src: `${ASSET_BASE}emotes/sadhamster.mp4`, thumb: `${ASSET_BASE}emotes/sadhamster_thumb.jpg`, durationMs: 7600, aspect: 192 / 192 },
+  { id: 'huskydance', label: 'Chikiri Husky', src: `${ASSET_BASE}emotes/huskydance.mp4`, thumb: `${ASSET_BASE}emotes/huskydance_thumb.jpg`, durationMs: 8133, aspect: 498 / 332 },
 ];
 
 const DEF_BY_ID = new Map<RoomEmoteId, EmoteDef>(EMOTES.map((e) => [e.id, e]));

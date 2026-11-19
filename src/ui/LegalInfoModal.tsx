@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { IS_POKI_BUILD } from '../engine/portalConfig';
 
 const INK_BOX = 'border-[3px] border-ink shadow-ink';
 const INK_BTN =
@@ -116,10 +117,17 @@ export function LegalInfoModal({ initialTab = 'privacy', onClose }: LegalInfoMod
                 <h3 className="text-sm font-extrabold text-ink">Privacy Policy for Chibi Ludo 3D</h3>
                 <p className="text-[11px] text-ink/65">Last updated: November 2026</p>
                 <p className="mt-1">
-                  Chibi Ludo 3D is operated by <strong>Inkfinity Studio</strong> (<a href="https://inkfinitystudio.store" target="_blank" rel="noopener noreferrer" className="font-bold underline text-ink">inkfinitystudio.store</a>). We respect your privacy and are committed to transparency regarding how data is used when playing our game.
+                  Chibi Ludo 3D is operated by <strong>Inkfinity Studio</strong>
+                  {!IS_POKI_BUILD && (
+                    <>
+                      {' '}(<a href="https://inkfinitystudio.store" target="_blank" rel="noopener noreferrer" className="font-bold underline text-ink">inkfinitystudio.store</a>)
+                    </>
+                  )}
+                  . We respect your privacy and are committed to transparency regarding how data is used when playing our game.
                 </p>
               </div>
 
+              {!IS_POKI_BUILD && (
               <div className="rounded-xl border-2 border-ink/25 bg-[#ffe0ea] p-2.5">
                 <h4 className="font-extrabold text-ink">Google AdSense &amp; Advertising Cookies</h4>
                 <p className="mt-1">
@@ -161,6 +169,7 @@ export function LegalInfoModal({ initialTab = 'privacy', onClose }: LegalInfoMod
                   </li>
                 </ul>
               </div>
+              )}
 
               <div>
                 <h4 className="font-bold text-ink">Local Device Storage</h4>
@@ -187,13 +196,20 @@ export function LegalInfoModal({ initialTab = 'privacy', onClose }: LegalInfoMod
                 <h4 className="font-bold text-ink">Contact Us</h4>
                 <p>
                   If you have questions about this Privacy Policy or data requests, contact us at:{' '}
-                  <a href="mailto:support@inkfinitystudio.store" className="font-bold underline">
-                    support@inkfinitystudio.store
-                  </a>{' '}
-                  or visit{' '}
-                  <a href="https://inkfinitystudio.store" target="_blank" rel="noopener noreferrer" className="font-bold underline">
-                    inkfinitystudio.store
-                  </a>.
+                  {IS_POKI_BUILD ? (
+                    <span className="font-bold">support@inkfinitystudio.store</span>
+                  ) : (
+                    <>
+                      <a href="mailto:support@inkfinitystudio.store" className="font-bold underline">
+                        support@inkfinitystudio.store
+                      </a>{' '}
+                      or visit{' '}
+                      <a href="https://inkfinitystudio.store" target="_blank" rel="noopener noreferrer" className="font-bold underline">
+                        inkfinitystudio.store
+                      </a>
+                    </>
+                  )}
+                  .
                 </p>
               </div>
             </div>
@@ -242,14 +258,16 @@ export function LegalInfoModal({ initialTab = 'privacy', onClose }: LegalInfoMod
         {/* Footer */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t-2 border-ink/15 pt-2 text-[11px] font-semibold text-ink/70">
           <span>&copy; {new Date().getFullYear()} Inkfinity Studio. All rights reserved.</span>
-          <a
-            href="https://inkfinitystudio.store"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-bold text-ink underline"
-          >
-            inkfinitystudio.store ↗
-          </a>
+          {!IS_POKI_BUILD && (
+            <a
+              href="https://inkfinitystudio.store"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-bold text-ink underline"
+            >
+              inkfinitystudio.store ↗
+            </a>
+          )}
         </div>
       </div>
     </div>

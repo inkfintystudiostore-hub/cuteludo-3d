@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { registerAdFallbackHandler, registerInterstitialFallbackHandler } from '../engine/adAdapter';
+import { IS_POKI_BUILD } from '../engine/portalConfig';
 
 const INK_BOX = 'border-[3px] border-ink shadow-ink';
 
@@ -76,14 +77,16 @@ export function RewardedAdOverlay() {
             <p className="text-base font-bold text-ink">
               Continuing in {adState.secondsLeft}s…
             </p>
-            <a
-              href="https://inkfinitystudio.store"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full rounded-2xl border-2 border-ink bg-[#ffe0ea] px-3 py-2.5 text-xs font-bold text-ink transition hover:bg-[#ffccd9]"
-            >
-              INKFINITY STUDIO — Custom 8K 3D Miniatures &amp; Gifts ↗
-            </a>
+            {!IS_POKI_BUILD && (
+              <a
+                href="https://inkfinitystudio.store"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full rounded-2xl border-2 border-ink bg-[#ffe0ea] px-3 py-2.5 text-xs font-bold text-ink transition hover:bg-[#ffccd9]"
+              >
+                INKFINITY STUDIO — Custom 8K 3D Miniatures &amp; Gifts ↗
+              </a>
+            )}
           </>
         ) : (
           <p className="text-base font-bold text-ink">

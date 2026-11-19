@@ -1,6 +1,7 @@
 # Dependencies & build output
 node_modules/
 dist/
+dist-poki/
 coverage/
 
 # Cloudflare Wrangler local state & secrets
