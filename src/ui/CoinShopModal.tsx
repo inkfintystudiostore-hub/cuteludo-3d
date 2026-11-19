@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { getHttpOrigin, getWalletPlayerId } from '../engine/multiplayerClient';
+import { getHttpOrigin, getWalletAuthHeaders, getWalletPlayerId } from '../engine/multiplayerClient';
 import { COIN_PACKS, type CoinPack } from '../engine/shopCatalog';
 import { useWalletStore } from '../engine/walletStore';
 import { soundManager } from '../utils/soundManager';
@@ -56,9 +56,10 @@ export function CoinShopModal({ onClose }: { onClose: () => void }) {
     setNotice(null);
     try {
       const origin = getHttpOrigin();
+      const authHeaders = await getWalletAuthHeaders();
       const orderRes = await fetch(`${origin}/api/payments/razorpay/order`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ packId: pack.id, playerId: getWalletPlayerId() }),
       });
       const order = (await orderRes.json()) as {
@@ -94,9 +95,10 @@ export function CoinShopModal({ onClose }: { onClose: () => void }) {
           razorpay_payment_id?: string;
           razorpay_signature?: string;
         }) => {
+          const verifyAuthHeaders = await getWalletAuthHeaders();
           const verifyRes = await fetch(`${origin}/api/payments/razorpay/verify`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...verifyAuthHeaders },
             body: JSON.stringify({
               packId: pack.id,
               playerId: getWalletPlayerId(),

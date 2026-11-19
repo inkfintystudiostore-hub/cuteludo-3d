@@ -123,11 +123,12 @@ export function syncActiveEmoteMedia(activeIds: ReadonlySet<RoomEmoteId>, paused
 
 let preloaded = false;
 
-/** Preloads lightweight video metadata once without keeping background video decoders running. */
+/** Preloads emote thumbnails for instant reaction picker rendering without locking video decoders. */
 export function preloadEmoteMedia(): void {
   if (preloaded || typeof document === 'undefined') return;
   preloaded = true;
-  for (const { id } of EMOTES) {
-    getEmoteVideoEntry(id);
+  for (const { thumb } of EMOTES) {
+    const img = new Image();
+    img.src = thumb;
   }
 }

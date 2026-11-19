@@ -3,7 +3,7 @@
  * Features the homepage setup pop-up, a compact top-left game menu dropdown (Pause, Restart,
  * Camera Reset, Sound, Room Invite, Quit to Home), and mouse/touch/keyboard gameplay controls.
  */
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, lazy, Suspense, type ReactNode } from 'react';
 import gsap from 'gsap';
 import {
   HOME_PROGRESS,
@@ -18,7 +18,7 @@ import { SIMULATION_SPEEDS, canLocalPlayerAct, getLocalAnchorTeam, useGameStore 
 import { showInterstitialAd, showRewardedAd } from '../engine/adAdapter';
 import { calculatePlacementPayout, getEmoteCost, useWalletStore } from '../engine/walletStore';
 import { pickSmartBotMove } from '../engine/ludoRules';
-import { retryMultiplayerConnection } from '../engine/multiplayerClient';
+import { retryMultiplayerConnection, syncWalletFromServer } from '../engine/multiplayerClient';
 import { buildRoomShareUrl, formatRoomCode, resolveShareBaseUrl } from '../engine/roomCode';
 import { DiceTray } from '../scene/Dice3D';
 import { CAPTURE_GRAB_DURATION, CAPTURE_TWIRL_DURATION, SPAWN_DURATION } from '../scene/animationTiming';
@@ -34,10 +34,11 @@ import {
 import { triggerHaptic } from '../utils/haptics';
 import { soundManager } from '../utils/soundManager';
 import { HomeLobbyModal } from './HomeLobbyModal';
-import { LegalInfoModal } from './LegalInfoModal';
-import { RoomChatBox } from './RoomChatBox';
-import { VoiceChatPanel } from './VoiceChatPanel';
 import { useVoiceStore } from '../engine/voiceStore';
+
+const LegalInfoModal = lazy(() => import('./LegalInfoModal').then((m) => ({ default: m.LegalInfoModal })));
+const RoomChatBox = lazy(() => import('./RoomChatBox').then((m) => ({ default: m.RoomChatBox })));
+const VoiceChatPanel = lazy(() => import('./VoiceChatPanel').then((m) => ({ default: m.VoiceChatPanel })));
 import {
   CameraIcon,
   ChatIcon,
@@ -478,7 +479,11 @@ function TopLeftGameMenu() {
         </div>
       )}
 
-      {legalOpen && <LegalInfoModal onClose={() => setLegalOpen(false)} />}
+      {legalOpen && (
+        <Suspense fallback={null}>
+          <LegalInfoModal onClose={() => setLegalOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -854,8 +859,10 @@ function BottomChatControl({ className = '' }: { className?: string }) {
               Close
             </button>
           </div>
-          <VoiceChatPanel />
-          <RoomChatBox />
+          <Suspense fallback={<div className="p-3 text-center text-xs font-bold text-ink/60">Loading chat…</div>}>
+            <VoiceChatPanel />
+            <RoomChatBox />
+          </Suspense>
         </div>
       )}
     </>
@@ -1100,12 +1107,17 @@ function WinnerOverlay() {
   useEffect(() => {
     if (screen === 'playing' && phase === 'GAME_OVER' && !matchSettled) {
       markMatchSettled();
-      if (payout > 0) {
+      if (room?.online) {
+        if (payout > 0) {
+          soundManager.playStarChime();
+        }
+        void syncWalletFromServer();
+      } else if (payout > 0) {
         creditCoins(payout);
         soundManager.playStarChime();
       }
     }
-  }, [screen, phase, matchSettled, markMatchSettled, payout, creditCoins]);
+  }, [screen, phase, matchSettled, markMatchSettled, room?.online, payout, creditCoins]);
 
   useEffect(() => {
     if (screen !== 'playing' || phase !== 'GAME_OVER' || !room?.online || !room.closeAt) return;

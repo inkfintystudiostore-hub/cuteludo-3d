@@ -16,7 +16,7 @@ import {
   type PublicAccount,
 } from './auth';
 import { FIREBASE_PROJECT_ID, verifyFirebaseIdToken } from './firebaseAuth';
-import { isValidStakeTier } from '../src/engine/walletStore';
+import { calculatePlacementPayout, isValidStakeTier } from '../src/engine/walletStore';
 import { MODE_TEAMS } from '../src/engine/ludoRules';
 
 export { AccountDO, MatchmakerDO, PlayerWalletDO };
@@ -25,6 +25,7 @@ import {
   ROOM_IDLE_TTL_MS,
   computeTurnDeadlineAt,
   createRoomRecord,
+  cryptoRandom,
   disconnectPlayer,
   handleRoomAction,
   handleTurnTimeout,
@@ -57,6 +58,46 @@ const MAX_WS_PAYLOAD_BYTES = 4096;
 const FRAME_ANCESTORS_CSP =
   "frame-ancestors 'self' https://inkfinitystudio.store https://www.inkfinitystudio.store http://localhost:* http://127.0.0.1:*";
 
+const ALLOWED_CORS_ORIGINS = new Set([
+  'https://ludo.inkfinitystudio.store',
+  'https://inkfinitystudio.store',
+  'https://www.inkfinitystudio.store',
+  'http://localhost:5173',
+  'http://localhost:8787',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:8787',
+]);
+
+const httpRateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function checkHttpRateLimit(request: Request, bucketPrefix: string, maxRequests: number, windowMs = 60_000): boolean {
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
+  const key = `${bucketPrefix}:${ip}`;
+  const now = Date.now();
+  const entry = httpRateBuckets.get(key);
+  if (!entry || entry.resetAt <= now) {
+    if (httpRateBuckets.size > 5000) httpRateBuckets.clear();
+    httpRateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (entry.count >= maxRequests) return false;
+  entry.count += 1;
+  return true;
+}
+
+function isValidVoiceSignalPayload(signal: unknown): boolean {
+  if (!signal || typeof signal !== 'object') return false;
+  const s = signal as Record<string, unknown>;
+  if (s.kind === 'offer' || s.kind === 'answer') {
+    return typeof s.sdp === 'string' && s.sdp.length > 0 && s.sdp.length <= 4000;
+  }
+  if (s.kind === 'ice') {
+    return typeof s.candidate === 'string' && s.candidate.length <= 1024;
+  }
+  return false;
+}
+
 function randomRoomCode(): string {
   const min = 100_000_000;
   const max = 999_999_999;
@@ -66,9 +107,13 @@ function randomRoomCode(): string {
   return String(min + (buf[0] % span));
 }
 
-function withCorsHeaders(response: Response): Response {
+function withCorsHeaders(response: Response, request?: Request): Response {
   const headers = new Headers(response.headers);
-  headers.set('Access-Control-Allow-Origin', '*');
+  const origin = request?.headers.get('Origin');
+  if (origin && ALLOWED_CORS_ORIGINS.has(origin)) {
+    headers.set('Access-Control-Allow-Origin', origin);
+    headers.set('Vary', 'Origin');
+  }
   headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
@@ -91,20 +136,25 @@ export default {
       }
       const code = roomMatch[1];
       const stub = env.LUDO_ROOM.get(env.LUDO_ROOM.idFromName(code));
-      return stub.fetch(request);
+      const fwdHeaders = new Headers(request.headers);
+      fwdHeaders.set('X-Verified-Player-Id', `acct:${claims.uid}`);
+      return stub.fetch(new Request(request.url, { method: request.method, headers: fwdHeaders }));
     }
 
     if (url.pathname === '/api/rooms/reserve') {
       if (request.method === 'OPTIONS') {
-        return withCorsHeaders(new Response(null, { status: 204 }));
+        return withCorsHeaders(new Response(null, { status: 204 }), request);
       }
       if (request.method !== 'POST') {
-        return withCorsHeaders(Response.json({ ok: false, error: 'Method not allowed' }, { status: 405 }));
+        return withCorsHeaders(Response.json({ ok: false, error: 'Method not allowed' }, { status: 405 }), request);
+      }
+      if (!checkHttpRateLimit(request, 'reserve', 20)) {
+        return withCorsHeaders(Response.json({ ok: false, error: 'Too many requests. Please wait a moment.' }, { status: 429 }), request);
       }
       const reserveToken = extractBearerToken(request);
       const claims = reserveToken ? await verifyFirebaseIdToken(reserveToken, FIREBASE_PROJECT_ID) : null;
       if (!claims) {
-        return withCorsHeaders(Response.json({ ok: false, error: 'Please sign in with Google to create a room.' }, { status: 401 }));
+        return withCorsHeaders(Response.json({ ok: false, error: 'Please sign in with Google to create a room.' }, { status: 401 }), request);
       }
       let requestedMode: GameMode = '4P_FFA';
       let candidate: string | null = null;
@@ -136,7 +186,7 @@ export default {
 
     if (url.pathname === '/api/voice/blocks') {
       if (request.method === 'OPTIONS') {
-        return withCorsHeaders(new Response(null, { status: 204 }));
+        return withCorsHeaders(new Response(null, { status: 204 }), request);
       }
       const token = extractBearerToken(request);
       let walletId: string | null = null;
@@ -150,12 +200,12 @@ export default {
         }
       }
       if (!walletId) {
-        return withCorsHeaders(Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 }));
+        return withCorsHeaders(Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 }), request);
       }
       const voiceStub = env.PLAYER_ACCOUNT.get(env.PLAYER_ACCOUNT.idFromName(`voice:${walletId}`));
       if (request.method === 'GET') {
         const res = await voiceStub.fetch('https://internal/voice-blocks');
-        return withCorsHeaders(Response.json(await res.json(), { status: res.status }));
+        return withCorsHeaders(Response.json(await res.json(), { status: res.status }), request);
       }
       if (request.method === 'POST') {
         const res = await voiceStub.fetch('https://internal/voice-blocks', {
@@ -163,17 +213,17 @@ export default {
           headers: { 'Content-Type': 'application/json' },
           body: await request.text(),
         });
-        return withCorsHeaders(Response.json(await res.json(), { status: res.status }));
+        return withCorsHeaders(Response.json(await res.json(), { status: res.status }), request);
       }
-      return withCorsHeaders(Response.json({ ok: false, error: 'Method not allowed' }, { status: 405 }));
+      return withCorsHeaders(Response.json({ ok: false, error: 'Method not allowed' }, { status: 405 }), request);
     }
 
     if (url.pathname.startsWith('/api/payments/')) {
       if (request.method === 'OPTIONS') {
-        return withCorsHeaders(new Response(null, { status: 204 }));
+        return withCorsHeaders(new Response(null, { status: 204 }), request);
       }
       const paymentRes = await handlePaymentRequest(request, url, env);
-      if (paymentRes) return withCorsHeaders(paymentRes);
+      if (paymentRes) return withCorsHeaders(paymentRes, request);
     }
 
     if (url.pathname.startsWith('/api/auth/')) {
@@ -218,13 +268,14 @@ export default {
         const token = extractBearerToken(request);
         const claims = token ? await verifyFirebaseIdToken(token, FIREBASE_PROJECT_ID) : null;
         if (!claims) {
-          return withCorsHeaders(Response.json({ ok: false, error: 'Invalid Firebase session' }, { status: 401 }));
+          return withCorsHeaders(Response.json({ ok: false, error: 'Invalid Firebase session' }, { status: 401 }), request);
         }
         const walletId = `acct:${claims.uid}`;
         const accountWalletStub = env.PLAYER_WALLET.get(env.PLAYER_WALLET.idFromName(walletId));
 
         const guestId = typeof body.guestPlayerId === 'string' ? body.guestPlayerId.trim() : '';
-        if (guestId && guestId.length <= 64 && !guestId.startsWith('acct:')) {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(guestId);
+        if (guestId && isUuid && !guestId.startsWith('acct:')) {
           const guestStub = env.PLAYER_WALLET.get(env.PLAYER_WALLET.idFromName(guestId));
           const guestStateRes = await guestStub.fetch('https://internal/state');
           const guestStateJson = (await guestStateRes.json()) as { ok?: boolean; wallet?: Record<string, unknown> };
@@ -243,7 +294,11 @@ export default {
 
         const walletRes = await accountWalletStub.fetch('https://internal/state');
         const walletJson = (await walletRes.json()) as { ok?: boolean; wallet?: unknown };
-        return withCorsHeaders(Response.json({ ok: true, walletId, wallet: walletJson.wallet }));
+        return withCorsHeaders(Response.json({ ok: true, walletId, wallet: walletJson.wallet }), request);
+      }
+
+      if (!checkHttpRateLimit(request, 'auth', 15)) {
+        return withCorsHeaders(Response.json({ ok: false, error: 'Too many authentication attempts. Please wait.' }, { status: 429 }), request);
       }
 
       const userCheck = validateUsername(String(body.username ?? ''));
@@ -316,19 +371,20 @@ export default {
 
     if (url.pathname.startsWith('/api/wallet')) {
       if (request.method === 'OPTIONS') {
-        return withCorsHeaders(new Response(null, { status: 204 }));
+        return withCorsHeaders(new Response(null, { status: 204 }), request);
       }
       const playerId = url.searchParams.get('playerId')?.trim();
       if (!playerId || playerId.length > 64) {
-        return withCorsHeaders(Response.json({ ok: false, error: 'Missing playerId' }, { status: 400 }));
+        return withCorsHeaders(Response.json({ ok: false, error: 'Missing playerId' }, { status: 400 }), request);
       }
       const subPath = url.pathname === '/api/wallet' ? '/state' : url.pathname.replace('/api/wallet', '');
-      if (subPath === '/import' || subPath === '/migrate-out') {
-        return withCorsHeaders(Response.json({ ok: false, error: 'Forbidden' }, { status: 403 }));
+      if (subPath === '/import' || subPath === '/migrate-out' || subPath === '/credit' || subPath === '/claim-tx') {
+        return withCorsHeaders(Response.json({ ok: false, error: 'Forbidden' }, { status: 403 }), request);
       }
-      if ((subPath === '/spin' || subPath === '/claim-streak') && !playerId.startsWith('acct:')) {
+      if ((subPath === '/spin' || subPath === '/claim-streak' || subPath === '/deduct' || subPath === '/rescue') && !playerId.startsWith('acct:')) {
         return withCorsHeaders(
-          Response.json({ ok: false, error: 'Please sign in with Google to access Spin & Streak.' }, { status: 401 }),
+          Response.json({ ok: false, error: 'Please sign in with Google to access wallet rewards.' }, { status: 401 }),
+          request,
         );
       }
       if (playerId.startsWith('acct:')) {
@@ -346,7 +402,7 @@ export default {
           }
         }
         if (!authorized) {
-          return withCorsHeaders(Response.json({ ok: false, error: 'Unauthorized wallet access' }, { status: 401 }));
+          return withCorsHeaders(Response.json({ ok: false, error: 'Unauthorized wallet access' }, { status: 401 }), request);
         }
       }
       const stub = env.PLAYER_WALLET.get(env.PLAYER_WALLET.idFromName(playerId));
@@ -357,15 +413,18 @@ export default {
           body: request.method === 'GET' ? undefined : request.body,
         }),
       );
-      return withCorsHeaders(doRes);
+      return withCorsHeaders(doRes, request);
     }
 
     if (url.pathname === '/api/matchmake') {
       if (request.method === 'OPTIONS') {
-        return withCorsHeaders(new Response(null, { status: 204 }));
+        return withCorsHeaders(new Response(null, { status: 204 }), request);
       }
       if (request.method !== 'POST') {
-        return withCorsHeaders(Response.json({ ok: false, error: 'Method not allowed' }, { status: 405 }));
+        return withCorsHeaders(Response.json({ ok: false, error: 'Method not allowed' }, { status: 405 }), request);
+      }
+      if (!checkHttpRateLimit(request, 'matchmake', 25)) {
+        return withCorsHeaders(Response.json({ ok: false, error: 'Too many matchmaking requests. Please wait.' }, { status: 429 }), request);
       }
       let body: { mode?: GameMode; stake?: number } = {};
       try {
@@ -404,6 +463,10 @@ export default {
     const headers = new Headers(assetRes.headers);
     headers.delete('X-Frame-Options');
     headers.set('Content-Security-Policy', FRAME_ANCESTORS_CSP);
+    headers.set('X-Content-Type-Options', 'nosniff');
+    headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    headers.set('Permissions-Policy', 'camera=(), geolocation=(), microphone=(self)');
+    headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     return new Response(assetRes.body, {
       status: assetRes.status,
       statusText: assetRes.statusText,
@@ -501,13 +564,16 @@ export class LudoRoomDO extends DurableObject<Env> {
     if (activePlayerIds.size > 0 && current.started && current.game.phase !== 'GAME_OVER') {
       const timeoutResult = handleTurnTimeout(current, now);
       if (timeoutResult) {
-        current = timeoutResult.record;
-        await this.saveRoom(current, { touchActivity: false });
+        const nextRecord = timeoutResult.record;
+        if (nextRecord.game.phase === 'GAME_OVER') {
+          await this.settleRoomPayouts(nextRecord);
+        }
+        await this.saveRoom(nextRecord, { touchActivity: false });
         for (const msg of timeoutResult.broadcast) {
           this.broadcastMessage(msg);
         }
         if (snapshotsNeeded || timeoutResult.broadcastSnapshots) {
-          this.broadcastPersonalizedSnapshots(current);
+          this.broadcastPersonalizedSnapshots(nextRecord);
         }
         return;
       }
@@ -516,6 +582,71 @@ export class LudoRoomDO extends DurableObject<Env> {
     await this.saveRoom(current, { touchActivity: false });
     if (snapshotsNeeded) {
       this.broadcastPersonalizedSnapshots(current);
+    }
+  }
+
+  private async escrowRoomStakes(record: RoomRecord): Promise<{ ok: true } | { ok: false; error: string }> {
+    const stake = record.stake ?? 0;
+    if (stake <= 0) return { ok: true };
+    const deducted: string[] = [];
+    for (const seat of record.seats) {
+      if (seat.occupant !== 'human' || !seat.playerId) continue;
+      try {
+        const stub = this.env.PLAYER_WALLET.get(this.env.PLAYER_WALLET.idFromName(seat.playerId));
+        const res = await stub.fetch('https://internal/deduct', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount: stake }),
+        });
+        if (!res.ok) {
+          for (const pid of deducted) {
+            const refundStub = this.env.PLAYER_WALLET.get(this.env.PLAYER_WALLET.idFromName(pid));
+            await refundStub.fetch('https://internal/credit', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ amount: stake, txId: `refund:${record.code}:${record.seq ?? 0}:${pid}` }),
+            });
+          }
+          const who = seat.playerName || seat.team;
+          return { ok: false, error: `${who} does not have enough coins (${stake} 🪙) to play this stake.` };
+        }
+        deducted.push(seat.playerId);
+      } catch {
+        for (const pid of deducted) {
+          const refundStub = this.env.PLAYER_WALLET.get(this.env.PLAYER_WALLET.idFromName(pid));
+          await refundStub.fetch('https://internal/credit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount: stake, txId: `refund:${record.code}:${record.seq ?? 0}:${pid}` }),
+          });
+        }
+        return { ok: false, error: 'Could not verify player coin balances right now.' };
+      }
+    }
+    return { ok: true };
+  }
+
+  private async settleRoomPayouts(record: RoomRecord): Promise<void> {
+    const stake = record.stake ?? 0;
+    if (!record.started || record.game.phase !== 'GAME_OVER' || stake <= 0) return;
+    const is2v2 = record.mode === '2V2_TEAM';
+    const playerCount = record.game.activeTeams.length;
+    const winnerCount = Math.max(1, record.game.winners.length);
+    for (const seat of record.seats) {
+      if (seat.occupant !== 'human' || !seat.playerId) continue;
+      const rank = record.game.rankings.indexOf(seat.team) + 1;
+      const payout = calculatePlacementPayout(stake, playerCount, rank, winnerCount, is2v2);
+      if (payout <= 0) continue;
+      try {
+        const stub = this.env.PLAYER_WALLET.get(this.env.PLAYER_WALLET.idFromName(seat.playerId));
+        await stub.fetch('https://internal/credit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount: payout, txId: `match:${record.code}:${record.seq ?? 0}:${seat.team}` }),
+        });
+      } catch {
+        // Best-effort wallet credit; idempotent txId allows safe retry if needed.
+      }
     }
   }
 
@@ -528,6 +659,19 @@ export class LudoRoomDO extends DurableObject<Env> {
 
   private voiceBlocksCache: Record<string, string[]> | null = null;
   private voiceStates = new Map<string, { enabled: boolean; muted: boolean }>();
+  private wsRateBuckets = new WeakMap<WebSocket, { count: number; resetAt: number }>();
+
+  private checkWsRateLimit(ws: WebSocket): boolean {
+    const now = Date.now();
+    const bucket = this.wsRateBuckets.get(ws);
+    if (!bucket || bucket.resetAt <= now) {
+      this.wsRateBuckets.set(ws, { count: 1, resetAt: now + 5_000 });
+      return true;
+    }
+    if (bucket.count >= 30) return false;
+    bucket.count += 1;
+    return true;
+  }
 
   private async getVoiceBlocks(): Promise<Record<string, string[]>> {
     if (!this.voiceBlocksCache) {
@@ -596,7 +740,8 @@ export class LudoRoomDO extends DurableObject<Env> {
 
     const codeMatch = url.pathname.match(/(\d{9})$/);
     const code = codeMatch?.[1] ?? '000000000';
-    const playerId = url.searchParams.get('pid')?.trim() || crypto.randomUUID();
+    const verifiedPlayerId = request.headers.get('X-Verified-Player-Id')?.trim();
+    const playerId = verifiedPlayerId || url.searchParams.get('pid')?.trim() || crypto.randomUUID();
     const deviceId = url.searchParams.get('did')?.trim() || undefined;
     const playerName = url.searchParams.get('name') ?? undefined;
     const intent = url.searchParams.get('intent');
@@ -652,30 +797,34 @@ export class LudoRoomDO extends DurableObject<Env> {
 
     // Send personalized snapshot to joining socket and notify existing peers.
     queueMicrotask(async () => {
-      this.broadcastPersonalizedSnapshots(updated);
-      for (const [pid, vState] of this.voiceStates.entries()) {
-        if (pid !== playerId && server.readyState === WebSocket.OPEN) {
-          server.send(
-            JSON.stringify({
-              type: 'voice_peer_state',
-              playerId: pid,
-              enabled: vState.enabled,
-              muted: vState.muted,
-            } satisfies ServerMessage),
-          );
+      try {
+        this.broadcastPersonalizedSnapshots(updated);
+        for (const [pid, vState] of this.voiceStates.entries()) {
+          if (pid !== playerId && server.readyState === WebSocket.OPEN) {
+            server.send(
+              JSON.stringify({
+                type: 'voice_peer_state',
+                playerId: pid,
+                enabled: vState.enabled,
+                muted: vState.muted,
+              } satisfies ServerMessage),
+            );
+          }
         }
-      }
-      const blocks = await this.getVoiceBlocks();
-      for (const [blockerId, blockedList] of Object.entries(blocks)) {
-        if (blockerId !== playerId && blockedList.includes(playerId) && server.readyState === WebSocket.OPEN) {
-          server.send(
-            JSON.stringify({
-              type: 'voice_blocked',
-              byPlayerId: blockerId,
-              blocked: true,
-            } satisfies ServerMessage),
-          );
+        const blocks = await this.getVoiceBlocks();
+        for (const [blockerId, blockedList] of Object.entries(blocks)) {
+          if (blockerId !== playerId && blockedList.includes(playerId) && server.readyState === WebSocket.OPEN) {
+            server.send(
+              JSON.stringify({
+                type: 'voice_blocked',
+                byPlayerId: blockerId,
+                blocked: true,
+              } satisfies ServerMessage),
+            );
+          }
         }
+      } catch {
+        // Ignore send errors on immediately-closed sockets.
       }
     });
 
@@ -686,6 +835,12 @@ export class LudoRoomDO extends DurableObject<Env> {
     if (!this.room) return;
     if (isRoomExpired(this.room)) {
       await this.alarm();
+      return;
+    }
+    if (!this.checkWsRateLimit(ws)) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Too many messages — slow down.' } satisfies ServerMessage));
+      }
       return;
     }
     const text = typeof rawMessage === 'string' ? rawMessage : new TextDecoder().decode(rawMessage);
@@ -702,7 +857,7 @@ export class LudoRoomDO extends DurableObject<Env> {
     }
 
     const meta = ws.deserializeAttachment() as SocketAttachment | null;
-    const playerId = parsed.type === 'join' ? parsed.playerId : (meta?.playerId ?? '');
+    const playerId = meta?.playerId ?? '';
     if (!playerId) return;
 
     if (parsed.type === 'ping') {
@@ -749,7 +904,7 @@ export class LudoRoomDO extends DurableObject<Env> {
 
     if (parsed.type === 'voice_signal') {
       const targetId = typeof parsed.targetPlayerId === 'string' ? parsed.targetPlayerId.trim() : '';
-      if (!targetId || targetId === playerId) return;
+      if (!targetId || targetId === playerId || !isValidVoiceSignalPayload(parsed.signal)) return;
       const isTargetInRoom = this.room.seats.some((s) => s.occupant === 'human' && s.playerId === targetId);
       const isSenderInRoom = this.room.seats.some((s) => s.occupant === 'human' && s.playerId === playerId);
       if (!isTargetInRoom || !isSenderInRoom) return;
@@ -768,7 +923,9 @@ export class LudoRoomDO extends DurableObject<Env> {
       ws.serializeAttachment({ playerId, leftExplicitly: true } satisfies SocketAttachment);
     }
 
-    const result = handleRoomAction(this.room, playerId, parsed, Math.random, Date.now());
+    const prevStarted = this.room.started;
+    const prevPhase = this.room.game.phase;
+    const result = handleRoomAction(this.room, playerId, parsed, cryptoRandom, Date.now());
     if (result.closeRoom) {
       const closeMsg = 'All players left — room closed.';
       for (const sock of this.ctx.getWebSockets()) {
@@ -784,6 +941,22 @@ export class LudoRoomDO extends DurableObject<Env> {
       this.voiceStates.clear();
       await this.ctx.storage.deleteAll();
       return;
+    }
+
+    const isStartingOrResettingMatch =
+      (!prevStarted && result.record.started) || (parsed.type === 'reset' && result.record.started);
+    if (isStartingOrResettingMatch) {
+      const escrow = await this.escrowRoomStakes(result.record);
+      if (!escrow.ok) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'error', message: escrow.error } satisfies ServerMessage));
+        }
+        return;
+      }
+    }
+
+    if (prevPhase !== 'GAME_OVER' && result.record.game.phase === 'GAME_OVER') {
+      await this.settleRoomPayouts(result.record);
     }
 
     if (result.persist) await this.saveRoom(result.record);

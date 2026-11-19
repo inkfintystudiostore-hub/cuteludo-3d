@@ -13,6 +13,14 @@ interface StoredWallet extends WalletPersisted {
   creditedTxs: string[];
 }
 
+const WHEEL_PRIZES = [50, 250, 100, 500, 75, 150, 25, 1000] as const;
+
+function pickServerWheelPrize(): number {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return WHEEL_PRIZES[buf[0] % WHEEL_PRIZES.length];
+}
+
 function todayKey(now = Date.now()): string {
   return new Date(now).toISOString().slice(0, 10);
 }
@@ -69,6 +77,25 @@ export class PlayerWalletDO extends DurableObject {
     const url = new URL(request.url);
     const now = Date.now();
 
+    if (url.pathname === '/claim-tx' && request.method === 'POST') {
+      const alreadyClaimed = await this.ctx.storage.get<{ claimedAt: number; playerId?: string }>('tx_claim');
+      if (alreadyClaimed) {
+        return Response.json({ ok: false, duplicate: true, error: 'Transaction already redeemed' }, { status: 409 });
+      }
+      let claimMeta: { playerId?: string; packId?: string } = {};
+      try {
+        claimMeta = (await request.json()) as { playerId?: string; packId?: string };
+      } catch {
+        // Metadata optional.
+      }
+      await this.ctx.storage.put('tx_claim', {
+        claimedAt: now,
+        playerId: typeof claimMeta.playerId === 'string' ? claimMeta.playerId : undefined,
+        packId: typeof claimMeta.packId === 'string' ? claimMeta.packId : undefined,
+      });
+      return Response.json({ ok: true });
+    }
+
     if (url.pathname === '/import' && request.method === 'POST') {
       const existing = await this.ctx.storage.get<StoredWallet>('wallet');
       if (existing) {
@@ -83,7 +110,7 @@ export class PlayerWalletDO extends DurableObject {
       const fresh = defaultWallet(now);
       const src = body.wallet;
       if (src && typeof src.balance === 'number' && Number.isFinite(src.balance) && src.balance >= 0) {
-        fresh.balance = Math.floor(src.balance);
+        fresh.balance = Math.min(2000, Math.floor(src.balance));
         if (typeof src.lastFreeSpinAt === 'number' && Number.isFinite(src.lastFreeSpinAt)) {
           fresh.lastFreeSpinAt = src.lastFreeSpinAt;
         }
@@ -165,7 +192,6 @@ export class PlayerWalletDO extends DurableObject {
 
     if (url.pathname === '/spin') {
       const isFree = Boolean(body.isFree);
-      const reward = Math.max(0, Math.min(1000, Math.floor(Number(body.reward ?? 0))));
       if (isFree) {
         if (now - wallet.lastFreeSpinAt < FREE_SPIN_COOLDOWN_MS) {
           return Response.json({ ok: false, error: 'Free spin not ready yet' }, { status: 400 });
@@ -177,6 +203,7 @@ export class PlayerWalletDO extends DurableObject {
         }
         wallet.adSpinsUsedToday += 1;
       }
+      const reward = pickServerWheelPrize();
       wallet.balance += reward;
       await this.ctx.storage.put('wallet', wallet);
       return Response.json({ ok: true, reward, wallet: publicWallet(wallet) });

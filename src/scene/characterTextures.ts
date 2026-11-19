@@ -20,7 +20,7 @@ export function getAnimeEyeTexture(mood: EyeMood, irisColor = '#2b213a'): THREE.
   const cached = eyeCache.get(key);
   if (cached) return cached;
 
-  const s = 1024;
+  const s = 512;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d')!;
@@ -122,13 +122,13 @@ export function getAnimeEyeTexture(mood: EyeMood, irisColor = '#2b213a'): THREE.
   return texture;
 }
 
-/** Smooth 1K coat texture with soft ambient fur gradients and species markings. */
+/** Smooth coat texture with soft ambient fur gradients and species markings. */
 export function getAnimalCoatTexture(species: AnimalSpecies, coatColor: string): THREE.CanvasTexture {
   const key = `${species}|${coatColor}`;
   const cached = coatCache.get(key);
   if (cached) return cached;
 
-  const s = 1024;
+  const s = 512;
   const k = s / 2048;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
@@ -184,10 +184,10 @@ export function getAnimalCoatTexture(species: AnimalSpecies, coatColor: string):
   return texture;
 }
 
-/** Shared seamless 512px plush microfiber bump map for tactile velvety depth. */
+/** Shared seamless plush microfiber bump map for tactile velvety depth. */
 export function getAnimalFurBumpTexture(): THREE.CanvasTexture {
   if (furBumpCache) return furBumpCache;
-  const s = 512;
+  const s = 256;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d')!;

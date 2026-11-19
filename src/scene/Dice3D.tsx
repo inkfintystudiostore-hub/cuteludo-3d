@@ -52,7 +52,7 @@ const PIP_LAYOUT: Record<number, [number, number][]> = {
 };
 
 function makeFaceTexture(value: number): THREE.CanvasTexture {
-  const s = 512;
+  const s = 256;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d')!;
@@ -345,7 +345,7 @@ export function DiceTray({ className = '' }: { className?: string }) {
           key={canvasKey}
           flat
           frameloop={needsContinuousFrames || settling ? 'always' : 'demand'}
-          dpr={mobile ? [1, 1.5] : [1, 2]}
+          dpr={mobile ? 1 : [1, 1.5]}
           gl={{ antialias: true, powerPreference: 'default', failIfMajorPerformanceCaveat: false }}
           camera={{ position: [0, 3.3, 2.5], fov: 34 }}
           onCreated={({ gl, camera }) => {

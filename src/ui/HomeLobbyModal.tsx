@@ -3,7 +3,7 @@
  * Lets players pick Solo/AI/Pass & Play modes or create/join a live 9-digit Friend Room
  * powered by Cloudflare Durable Objects WebSockets (with graceful offline local fallback).
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { showInterstitialAd } from '../engine/adAdapter';
 import { TEAM_COLORS, TEAM_LABELS, type TeamId } from '../engine/boardMap';
 import { SIMULATION_SPEEDS, useGameStore, type SimulationSpeed } from '../engine/gameStore';
@@ -43,12 +43,14 @@ import {
 import { requestGameFullscreen } from '../utils/fullscreen';
 import { usePwaInstall } from '../utils/pwaInstall';
 import { BotIcon, CheckIcon, CopyIcon, ExternalLinkIcon, LinkIcon, MascotIcon, PlayIcon, UsersIcon } from './Icons';
-import { RoomChatBox } from './RoomChatBox';
-import { CoinShopModal } from './CoinShopModal';
-import { WheelOfFortuneModal } from './WheelOfFortuneModal';
-import { AuthModal } from './AuthModal';
-import { LegalInfoModal, type LegalTab } from './LegalInfoModal';
+import type { LegalTab } from './LegalInfoModal';
 import { useAuthStore } from '../engine/authStore';
+
+const RoomChatBox = lazy(() => import('./RoomChatBox').then((m) => ({ default: m.RoomChatBox })));
+const CoinShopModal = lazy(() => import('./CoinShopModal').then((m) => ({ default: m.CoinShopModal })));
+const WheelOfFortuneModal = lazy(() => import('./WheelOfFortuneModal').then((m) => ({ default: m.WheelOfFortuneModal })));
+const AuthModal = lazy(() => import('./AuthModal').then((m) => ({ default: m.AuthModal })));
+const LegalInfoModal = lazy(() => import('./LegalInfoModal').then((m) => ({ default: m.LegalInfoModal })));
 
 type LobbyTab = 'local' | 'friends';
 type LocalPlayStyle = 'ai' | 'pass' | 'sim';
@@ -960,7 +962,11 @@ export function HomeLobbyModal() {
               )}
             </div>
 
-            {room?.online && <RoomChatBox compact />}
+            {room?.online && (
+              <Suspense fallback={null}>
+                <RoomChatBox compact />
+              </Suspense>
+            )}
 
             <button
               type="button"
@@ -1043,7 +1049,11 @@ export function HomeLobbyModal() {
               </p>
             )}
 
-            {room.online && <RoomChatBox compact />}
+            {room.online && (
+              <Suspense fallback={null}>
+                <RoomChatBox compact />
+              </Suspense>
+            )}
 
             {effectiveStake > 0 && !canAffordMatch && (
               <div className="flex items-center justify-between gap-2 rounded-xl border-2 border-ink bg-[#ffe0ea] px-2.5 py-1.5 text-[11px] font-bold">
@@ -1232,11 +1242,13 @@ export function HomeLobbyModal() {
           </a>
         </footer>
       </div>
-      {legalModalTab && (
-        <LegalInfoModal initialTab={legalModalTab} onClose={() => setLegalModalTab(null)} />
-      )}
-      {wheelOpen && <WheelOfFortuneModal onClose={() => setWheelOpen(false)} />}
-      {shopOpen && <CoinShopModal onClose={() => setShopOpen(false)} />}
+      <Suspense fallback={null}>
+        {legalModalTab && (
+          <LegalInfoModal initialTab={legalModalTab} onClose={() => setLegalModalTab(null)} />
+        )}
+        {wheelOpen && <WheelOfFortuneModal onClose={() => setWheelOpen(false)} />}
+        {shopOpen && <CoinShopModal onClose={() => setShopOpen(false)} />}
+      </Suspense>
       {matchingPublic && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-ink/45 p-3 backdrop-blur-xs">
           <div
@@ -1377,27 +1389,31 @@ export function HomeLobbyModal() {
         </div>
       )}
 
-      <AuthModal
-        open={authOpen}
-        reason={authReason}
-        playerName={playerName}
-        onSavePlayerName={(name) => {
-          setPlayerName(name);
-          savePlayerDisplayName(name);
-        }}
-        onClose={() => {
-          setAuthOpen(false);
-          setAuthReason(null);
-          pendingAuthActionRef.current = null;
-        }}
-        onAuthenticated={(name) => {
-          setPlayerName((cur) => (cur.trim() ? cur : name));
-          const pending = pendingAuthActionRef.current;
-          pendingAuthActionRef.current = null;
-          setAuthReason(null);
-          pending?.();
-        }}
-      />
+      {authOpen && (
+        <Suspense fallback={null}>
+          <AuthModal
+            open={authOpen}
+            reason={authReason}
+            playerName={playerName}
+            onSavePlayerName={(name) => {
+              setPlayerName(name);
+              savePlayerDisplayName(name);
+            }}
+            onClose={() => {
+              setAuthOpen(false);
+              setAuthReason(null);
+              pendingAuthActionRef.current = null;
+            }}
+            onAuthenticated={(name) => {
+              setPlayerName((cur) => (cur.trim() ? cur : name));
+              const pending = pendingAuthActionRef.current;
+              pendingAuthActionRef.current = null;
+              setAuthReason(null);
+              pending?.();
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

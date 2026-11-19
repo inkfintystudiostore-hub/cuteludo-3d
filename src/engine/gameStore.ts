@@ -94,6 +94,7 @@ export interface RoomTransport {
   move: (pawnId: string) => void;
   reset: () => void;
   resync?: () => void;
+  syncWallet?: () => void;
   emote: (emote: RoomEmoteId) => void;
   chat: (text: string) => void;
   disconnect: () => void;
@@ -812,17 +813,8 @@ export const useGameStore = create<GameStore>((set, get) => {
         clearPendingTimers();
         lastAppliedSeq = snapshot.seq ?? 0;
         const stake = snapshot.stake ?? 0;
-        if (stake > 0 && snapshot.game.phase !== 'GAME_OVER' && typeof window !== 'undefined') {
-          try {
-            const chargeKey = `${snapshot.code}:${snapshot.seq ?? 0}`;
-            const prevKey = window.sessionStorage.getItem('chibi_ludo_charged_room');
-            if (prevKey !== snapshot.code && prevKey !== chargeKey) {
-              useWalletStore.getState().deduct(stake);
-              window.sessionStorage.setItem('chibi_ludo_charged_room', snapshot.code);
-            }
-          } catch {
-            // Ignore sessionStorage errors.
-          }
+        if (stake > 0 && snapshot.game.phase !== 'GAME_OVER') {
+          roomTransport?.syncWallet?.();
         }
         const legal = computeLegalMoves(snapshot.game, snapshot.legalMoves);
         const turnDeadlineAt =
@@ -905,10 +897,12 @@ export const useGameStore = create<GameStore>((set, get) => {
       const turnDeadlineAt =
         typeof meta?.turnRemainingMs === 'number' ? Date.now() + meta.turnRemainingMs : null;
       const roomStake = get().room?.stake ?? 0;
-      const nextStake = roomStake > 0 && useWalletStore.getState().deduct(roomStake) ? roomStake : 0;
+      if (roomStake > 0) {
+        roomTransport?.syncWallet?.();
+      }
       set((s) => ({
         ...freshState(mode, meta?.game),
-        matchStake: nextStake,
+        matchStake: roomStake,
         paused: false,
         waitingRollAck: false,
         turnDeadlineAt,

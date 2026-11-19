@@ -164,8 +164,19 @@ function TrackArrows() {
   const chevronGeo = useMemo(() => new THREE.ShapeGeometry(chevronShape(0.24)), []);
   const smallChevronGeo = useMemo(() => new THREE.ShapeGeometry(chevronShape(0.16)), []);
 
+  const arrowMaterials = useMemo(
+    () => ({
+      smallWhite: new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.55 }),
+      PINK: new THREE.MeshBasicMaterial({ color: ENTER_ARROW_COLORS.PINK, transparent: true, opacity: 0.95 }),
+      CYAN: new THREE.MeshBasicMaterial({ color: ENTER_ARROW_COLORS.CYAN, transparent: true, opacity: 0.95 }),
+      YELLOW: new THREE.MeshBasicMaterial({ color: ENTER_ARROW_COLORS.YELLOW, transparent: true, opacity: 0.95 }),
+      MINT: new THREE.MeshBasicMaterial({ color: ENTER_ARROW_COLORS.MINT, transparent: true, opacity: 0.95 }),
+    }),
+    [],
+  );
+
   const markers = useMemo(() => {
-    const list: { key: string; x: number; z: number; rotY: number; color: string; small?: boolean }[] = [];
+    const list: { key: string; x: number; z: number; rotY: number; team?: TeamId; small?: boolean }[] = [];
 
     for (const team of TEAM_IDS) {
       // Clockwise flow arrow just beside the start star.
@@ -177,7 +188,6 @@ function TrackArrows() {
         x: startPos.x + (nextPos.x - startPos.x) * 0.34,
         z: startPos.z + (nextPos.z - startPos.z) * 0.34,
         rotY: -startYaw,
-        color: '#ffffff',
         small: true,
       });
 
@@ -190,7 +200,7 @@ function TrackArrows() {
         x: enterPos.x,
         z: enterPos.z,
         rotY: -enterYaw,
-        color: ENTER_ARROW_COLORS[team],
+        team,
       });
 
       // Subtle guide chevrons down the home lane toward the center goal.
@@ -201,7 +211,6 @@ function TrackArrows() {
           x: pos.x,
           z: pos.z,
           rotY: -enterYaw,
-          color: '#ffffff',
           small: true,
         });
       }
@@ -215,11 +224,10 @@ function TrackArrows() {
         <mesh
           key={m.key}
           geometry={m.small ? smallChevronGeo : chevronGeo}
+          material={m.small ? arrowMaterials.smallWhite : arrowMaterials[m.team!]}
           position={[m.x, TILE_SURFACE_Y + 0.004, m.z]}
           rotation={[-Math.PI / 2, 0, m.rotY]}
-        >
-          <meshBasicMaterial color={m.color} transparent opacity={m.small ? 0.55 : 0.95} />
-        </mesh>
+        />
       ))}
     </group>
   );

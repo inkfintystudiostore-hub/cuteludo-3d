@@ -1,0 +1,20 @@
+# Chibi Ludo 3D
+
+> A free, anime-inspired 3D Ludo board game by Inkfinity Studio. Playable instantly in any browser with zero download required.
+
+- **URL**: https://ludo.inkfinitystudio.store/
+- **Publisher**: Inkfinity Studio (https://inkfinitystudio.store)
+- **Contact**: support@inkfinitystudio.store
+
+## Key Features & Benefits
+- **100% Free & No Download**: Runs directly in the browser (or as a lightweight PWA), saving device storage space.
+- **Full 3D & Animations**: Interactive 3D board, 3D dice physics, and animated chibi animal tokens.
+- **Free Voice Chat**: Built-in voice chat to talk with friends during matches at no cost.
+- **GIFs & Emotes**: Send GIFs and reaction emotes in real-time multiplayer.
+- **Play With Friends or AI**: Private 9-digit online multiplayer rooms, local Pass & Play, or Solo vs smart AI bots.
+
+## Core Rules
+- **Spawn on 6**: Roll a 6 to move a token from your yard onto the track.
+- **Extra Turns**: Rolling a 6 or capturing an opponent token grants a bonus roll.
+- **Safe Stars**: Tokens on star tiles cannot be captured.
+- **Win Condition**: First player to get all tokens to the center Home wins.

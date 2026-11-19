@@ -1,7 +1,7 @@
 import { LudoCanvas } from './scene/LudoCanvas';
 import { AnimeHUD } from './ui/AnimeHUD';
 import { BottomAdBanner, TopAdBanner } from './ui/AdBannerBars';
-import { RewardedAdOverlay } from './ui/WheelOfFortuneModal';
+import { RewardedAdOverlay } from './ui/RewardedAdOverlay';
 
 export default function App() {
   return (

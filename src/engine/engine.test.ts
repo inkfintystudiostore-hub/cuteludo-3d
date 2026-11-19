@@ -1193,6 +1193,29 @@ describe('multiplayer roomLogic', () => {
     });
   });
 
+  it('prevents an authenticated account from hijacking another authenticated player seat by name', () => {
+    const t0 = 1_700_150_000_000;
+    let room = createRoomRecord('555666777', '2P_COUPLES');
+    room = joinRoom(room, 'acct:host-uid', 'Aman', t0, 'dev-1');
+    room = joinRoom(room, 'acct:victim-uid', 'Neha', t0 + 100, 'dev-2');
+    room = handleRoomAction(room, 'acct:host-uid', { type: 'start', mode: '2P_COUPLES' }, Math.random, t0 + 200).record;
+
+    // Victim disconnects; attacker joins with the exact same display name.
+    room = disconnectPlayer(room, 'acct:victim-uid', t0 + 500);
+    room = joinRoom(room, 'acct:attacker-uid', 'Neha', t0 + 1000, 'dev-2');
+
+    // Victim's seat must remain bound to acct:victim-uid and NOT be given to acct:attacker-uid.
+    expect(room.seats.find((s) => s.team === 'YELLOW')?.playerId).toBe('acct:victim-uid');
+    expect(snapshotForPlayer(room, 'acct:attacker-uid').yourTeam).toBeNull();
+
+    // Victim reconnecting with their own verified account reclaims their seat cleanly.
+    room = joinRoom(room, 'acct:victim-uid', 'Neha', t0 + 1500, 'dev-other');
+    expect(room.seats.find((s) => s.team === 'YELLOW')).toMatchObject({
+      playerId: 'acct:victim-uid',
+      connected: true,
+    });
+  });
+
   it('auto-closes finished Play With Friends rooms after 1 minute unless reset beforehand', () => {
     const t0 = 1_700_200_000_000;
     expect(GAME_OVER_ROOM_CLOSE_MS).toBe(60_000);

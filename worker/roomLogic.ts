@@ -20,6 +20,12 @@ import {
 
 const VALID_EMOTES = new Set<string>(ROOM_EMOTE_IDS);
 
+export function cryptoRandom(): number {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return buf[0] / 0x1_0000_0000;
+}
+
 export const ROOM_IDLE_TTL_MS = 6 * 60 * 60 * 1000;
 export const LOBBY_RECONNECT_GRACE_MS = 5 * 60 * 1000;
 export const EMPTY_ROOM_CLOSE_MS = LOBBY_RECONNECT_GRACE_MS;
@@ -391,29 +397,35 @@ export function joinRoom(
     return { ...pruned, hostId, seats, seatDeviceIds, turnDeadlineAt };
   };
 
-  if (deviceId) {
+  // Authenticated seats (`acct:...`) are bound to their verified account ID and cannot be reclaimed by name/device/fallback.
+  const isAuthenticatedJoiner = playerId.startsWith('acct:');
+
+  if (deviceId && !isAuthenticatedJoiner) {
     const deviceIdx = seats.findIndex(
-      (s) => s.occupant === 'human' && !s.connected && seatDeviceIds[s.team] === deviceId,
+      (s) => s.occupant === 'human' && !s.connected && !s.playerId?.startsWith('acct:') && seatDeviceIds[s.team] === deviceId,
     );
     if (deviceIdx >= 0) return reclaimSeat(deviceIdx);
   }
 
-  if (cleanName) {
+  if (cleanName && !isAuthenticatedJoiner) {
     const normalizedName = cleanName.toLowerCase();
     const nameIdx = seats.findIndex(
       (s) =>
         s.occupant === 'human' &&
         !s.connected &&
+        !s.playerId?.startsWith('acct:') &&
         s.playerName?.trim().toLowerCase() === normalizedName,
     );
     if (nameIdx >= 0) return reclaimSeat(nameIdx);
   }
 
-  const disconnectedHumanIndices = seats
-    .map((s, idx) => (s.occupant === 'human' && !s.connected ? idx : -1))
-    .filter((idx) => idx >= 0);
-  if (disconnectedHumanIndices.length === 1) {
-    return reclaimSeat(disconnectedHumanIndices[0]);
+  if (!isAuthenticatedJoiner) {
+    const disconnectedHumanIndices = seats
+      .map((s, idx) => (s.occupant === 'human' && !s.connected && !s.playerId?.startsWith('acct:') ? idx : -1))
+      .filter((idx) => idx >= 0);
+    if (disconnectedHumanIndices.length === 1) {
+      return reclaimSeat(disconnectedHumanIndices[0]);
+    }
   }
 
   // If the host launched early and left AI bot seat(s), let an invited friend take over a bot seat live.
@@ -561,7 +573,7 @@ function executeAuthoritativeMove(record: RoomRecord, pawnId: string, now: numbe
 export function handleTurnTimeout(
   record: RoomRecord,
   now = Date.now(),
-  random: () => number = Math.random,
+  random: () => number = cryptoRandom,
 ): RoomActionResult | null {
   if (!record.started || record.game.phase === 'GAME_OVER') return null;
   if (typeof record.turnDeadlineAt !== 'number' || now < record.turnDeadlineAt) return null;
@@ -625,7 +637,7 @@ export function handleRoomAction(
   record: RoomRecord,
   playerId: string,
   msg: ClientMessage,
-  random: () => number = Math.random,
+  random: () => number = cryptoRandom,
   now = Date.now(),
 ): RoomActionResult {
   switch (msg.type) {
@@ -856,7 +868,7 @@ export function handleRoomAction(
               team: (seat?.team ?? null) as TeamId | null,
               senderName,
               text,
-              ts: Date.now(),
+              ts: now,
             },
           },
         ],

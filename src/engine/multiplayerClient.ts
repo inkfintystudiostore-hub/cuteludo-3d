@@ -285,6 +285,9 @@ async function openSocket(params: ActiveConnectionParams): Promise<void> {
       const latestName = (activeParams?.playerName ?? loadPlayerDisplayName()).trim().slice(0, 18);
       send({ type: 'join', playerId, name: latestName || undefined, deviceId });
     },
+    syncWallet: () => {
+      void syncWalletFromServer();
+    },
     emote: (emote: RoomEmoteId) => send({ type: 'emote', emote }),
     chat: (text: string) => send({ type: 'chat', text }),
     disconnect: disconnectMultiplayerRoom,
@@ -536,7 +539,7 @@ export function getWalletPlayerId(): string {
   return walletAuthProvider?.().walletId ?? getDeviceId();
 }
 
-async function getWalletAuthHeaders(): Promise<Record<string, string>> {
+export async function getWalletAuthHeaders(): Promise<Record<string, string>> {
   const info = walletAuthProvider?.();
   if (!info) return {};
   const token = info.getToken ? await info.getToken() : info.token;
@@ -596,6 +599,35 @@ if (typeof window !== 'undefined') {
   registerWalletServerSync((action, payload) => {
     void postWalletAction(action, payload);
   });
+}
+
+export async function requestServerSpin(
+  isFree: boolean,
+): Promise<{ ok: true; reward: number; wallet: Partial<WalletPersisted> } | { ok: false; error: string }> {
+  try {
+    const playerId = getWalletPlayerId();
+    const authHeaders = await getWalletAuthHeaders();
+    const res = await fetch(`${getHttpOrigin()}/api/wallet/spin?playerId=${encodeURIComponent(playerId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ isFree }),
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      reward?: number;
+      wallet?: Partial<WalletPersisted>;
+      error?: string;
+    };
+    if (res.status === 401 && playerId.startsWith('acct:')) {
+      walletAuthProvider?.().onUnauthorized?.();
+    }
+    if (!res.ok || !data.ok || typeof data.reward !== 'number' || !data.wallet) {
+      return { ok: false, error: data.error ?? 'Could not spin wheel right now.' };
+    }
+    return { ok: true, reward: data.reward, wallet: data.wallet };
+  } catch {
+    return { ok: false, error: 'Server unreachable. Please check your connection.' };
+  }
 }
 
 export async function findQuickMatch(

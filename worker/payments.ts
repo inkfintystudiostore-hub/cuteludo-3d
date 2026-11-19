@@ -1,4 +1,6 @@
 import { getCoinPack } from '../src/engine/shopCatalog';
+import { extractBearerToken, verifySessionToken } from './authHelpers';
+import { FIREBASE_PROJECT_ID, verifyFirebaseIdToken } from './firebaseAuth';
 
 export interface WalletNamespaceLike {
   idFromName(name: string): never;
@@ -6,6 +8,7 @@ export interface WalletNamespaceLike {
 }
 
 export interface PaymentEnv {
+  AUTH_SECRET?: string;
   RAZORPAY_KEY_ID?: string;
   RAZORPAY_KEY_SECRET?: string;
   RAZORPAY_WEBHOOK_SECRET?: string;
@@ -15,22 +18,53 @@ export interface PaymentEnv {
   };
 }
 
+async function resolveAuthenticatedPlayerId(request: Request, env: PaymentEnv): Promise<string | null> {
+  const token = extractBearerToken(request);
+  if (!token) return null;
+  const fbClaims = await verifyFirebaseIdToken(token, FIREBASE_PROJECT_ID);
+  if (fbClaims?.uid) return `acct:${fbClaims.uid}`;
+  const session = await verifySessionToken(token, env.AUTH_SECRET);
+  return session?.walletId ?? null;
+}
+
+async function claimPaymentTxGlobally(
+  env: PaymentEnv,
+  txId: string,
+  playerId: string,
+  packId: string,
+): Promise<'claimed' | 'duplicate' | 'error'> {
+  if (!env.PLAYER_WALLET || !txId) return 'error';
+  try {
+    const lockStub = env.PLAYER_WALLET.get(env.PLAYER_WALLET.idFromName(`tx-lock:${txId}`));
+    const res = await lockStub.fetch('https://internal/claim-tx', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId, packId }),
+    });
+    if (res.status === 409) return 'duplicate';
+    return res.ok ? 'claimed' : 'error';
+  } catch {
+    return 'error';
+  }
+}
+
 async function creditServerWallet(
   env: PaymentEnv,
   playerId: string | undefined,
   coins: number,
   txId: string,
-): Promise<void> {
-  if (!env.PLAYER_WALLET || !playerId || coins <= 0) return;
+): Promise<boolean> {
+  if (!env.PLAYER_WALLET || !playerId || coins <= 0) return false;
   try {
     const stub = env.PLAYER_WALLET.get(env.PLAYER_WALLET.idFromName(playerId));
-    await stub.fetch('https://internal/credit', {
+    const res = await stub.fetch('https://internal/credit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ amount: coins, txId }),
     });
+    return res.ok;
   } catch {
-    // Non-fatal; client verification still returns verified txId.
+    return false;
   }
 }
 
@@ -90,9 +124,13 @@ export async function handlePaymentRequest(
         { status: 501 },
       );
     }
-    let body: { packId?: string; playerId?: string };
+    const playerId = await resolveAuthenticatedPlayerId(request, env);
+    if (!playerId) {
+      return Response.json({ ok: false, error: 'Please sign in with Google before purchasing coins.' }, { status: 401 });
+    }
+    let body: { packId?: string };
     try {
-      body = (await request.json()) as { packId?: string; playerId?: string };
+      body = (await request.json()) as { packId?: string };
     } catch {
       return Response.json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
     }
@@ -114,7 +152,7 @@ export async function handlePaymentRequest(
         notes: {
           packId: pack.id,
           coins: String(pack.coins),
-          ...(body.playerId ? { playerId: body.playerId.slice(0, 64) } : {}),
+          playerId: playerId.slice(0, 64),
         },
       }),
     });
@@ -137,12 +175,15 @@ export async function handlePaymentRequest(
   }
 
   if (url.pathname === '/api/payments/razorpay/verify' && request.method === 'POST') {
-    if (!env.RAZORPAY_KEY_SECRET) {
+    if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET) {
       return Response.json({ ok: false, configured: false, error: 'Razorpay not configured' }, { status: 501 });
+    }
+    const playerId = await resolveAuthenticatedPlayerId(request, env);
+    if (!playerId) {
+      return Response.json({ ok: false, error: 'Unauthorized payment verification' }, { status: 401 });
     }
     let body: {
       packId?: string;
-      playerId?: string;
       razorpay_order_id?: string;
       razorpay_payment_id?: string;
       razorpay_signature?: string;
@@ -152,8 +193,7 @@ export async function handlePaymentRequest(
     } catch {
       return Response.json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
     }
-    const pack = getCoinPack(body.packId);
-    if (!pack || !body.razorpay_order_id || !body.razorpay_payment_id || !body.razorpay_signature) {
+    if (!body.razorpay_order_id || !body.razorpay_payment_id || !body.razorpay_signature) {
       return Response.json({ ok: false, error: 'Missing payment verification fields' }, { status: 400 });
     }
 
@@ -166,8 +206,60 @@ export async function handlePaymentRequest(
     if (!valid) {
       return Response.json({ ok: false, error: 'Invalid Razorpay signature' }, { status: 400 });
     }
-    await creditServerWallet(env, body.playerId, pack.coins, body.razorpay_payment_id);
-    return Response.json({ ok: true, txId: body.razorpay_payment_id, packId: pack.id, coins: pack.coins });
+
+    // Authoritatively fetch order & payment from Razorpay to prevent pack-swap / amount tampering.
+    const auth = btoa(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`);
+    const [orderRes, payRes] = await Promise.all([
+      fetch(`https://api.razorpay.com/v1/orders/${encodeURIComponent(body.razorpay_order_id)}`, {
+        headers: { Authorization: `Basic ${auth}` },
+      }),
+      fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(body.razorpay_payment_id)}`, {
+        headers: { Authorization: `Basic ${auth}` },
+      }),
+    ]);
+    if (!orderRes.ok || !payRes.ok) {
+      return Response.json({ ok: false, error: 'Could not verify payment with Razorpay' }, { status: 502 });
+    }
+    const rzpOrder = (await orderRes.json()) as {
+      id?: string;
+      amount?: number;
+      currency?: string;
+      notes?: { packId?: string; playerId?: string };
+    };
+    const rzpPayment = (await payRes.json()) as {
+      id?: string;
+      order_id?: string;
+      amount?: number;
+      currency?: string;
+      status?: string;
+    };
+    const authoritativePack = getCoinPack(rzpOrder.notes?.packId);
+    if (
+      !authoritativePack ||
+      rzpOrder.amount !== authoritativePack.inrPaise ||
+      rzpOrder.currency !== 'INR' ||
+      (rzpOrder.notes?.playerId && rzpOrder.notes.playerId !== playerId) ||
+      rzpPayment.order_id !== body.razorpay_order_id ||
+      rzpPayment.amount !== authoritativePack.inrPaise ||
+      rzpPayment.currency !== 'INR' ||
+      (rzpPayment.status !== 'captured' && rzpPayment.status !== 'authorized')
+    ) {
+      return Response.json({ ok: false, error: 'Payment amount or order details mismatch' }, { status: 400 });
+    }
+
+    const claimState = await claimPaymentTxGlobally(env, body.razorpay_payment_id, playerId, authoritativePack.id);
+    if (claimState === 'duplicate') {
+      return Response.json({ ok: false, error: 'Payment already redeemed' }, { status: 409 });
+    }
+    if (claimState === 'error') {
+      return Response.json({ ok: false, error: 'Could not lock payment transaction' }, { status: 500 });
+    }
+
+    const credited = await creditServerWallet(env, playerId, authoritativePack.coins, body.razorpay_payment_id);
+    if (!credited) {
+      return Response.json({ ok: false, error: 'Failed to credit wallet; contact support with payment ID.' }, { status: 500 });
+    }
+    return Response.json({ ok: true, txId: body.razorpay_payment_id, packId: authoritativePack.id, coins: authoritativePack.coins });
   }
 
   if (url.pathname === '/api/payments/razorpay/webhook' && request.method === 'POST') {
@@ -191,7 +283,10 @@ export async function handlePaymentRequest(
       if ((eventName === 'payment.captured' || eventName === 'order.paid') && entity?.id) {
         const pack = getCoinPack(entity.notes?.packId);
         if (pack && entity.notes?.playerId) {
-          await creditServerWallet(env, entity.notes.playerId, pack.coins, entity.id);
+          const claimState = await claimPaymentTxGlobally(env, entity.id, entity.notes.playerId, pack.id);
+          if (claimState === 'claimed') {
+            await creditServerWallet(env, entity.notes.playerId, pack.coins, entity.id);
+          }
         }
       }
     } catch {

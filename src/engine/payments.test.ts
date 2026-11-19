@@ -72,4 +72,26 @@ describe('payments & shopCatalog', () => {
     const badRes = await handlePaymentRequest(badReq, new URL(badReq.url), { RAZORPAY_WEBHOOK_SECRET: secret });
     expect(badRes?.status).toBe(400);
   });
+
+  it('rejects unauthenticated order and verify requests with 401 when Razorpay is configured', async () => {
+    const env = { RAZORPAY_KEY_ID: 'rzp_test_123', RAZORPAY_KEY_SECRET: 'rzp_secret_123' };
+    const orderReq = new Request('https://example.com/api/payments/razorpay/order', {
+      method: 'POST',
+      body: JSON.stringify({ packId: 'starter' }),
+    });
+    const orderRes = await handlePaymentRequest(orderReq, new URL(orderReq.url), env);
+    expect(orderRes?.status).toBe(401);
+
+    const verifyReq = new Request('https://example.com/api/payments/razorpay/verify', {
+      method: 'POST',
+      body: JSON.stringify({
+        packId: 'starter',
+        razorpay_order_id: 'order_123',
+        razorpay_payment_id: 'pay_123',
+        razorpay_signature: '0'.repeat(64),
+      }),
+    });
+    const verifyRes = await handlePaymentRequest(verifyReq, new URL(verifyReq.url), env);
+    expect(verifyRes?.status).toBe(401);
+  });
 });

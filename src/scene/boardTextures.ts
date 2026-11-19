@@ -25,10 +25,10 @@ function createCrispBoardTexture(canvas: HTMLCanvasElement, repeat = false, anis
   return texture;
 }
 
-/** 2K birch/maple wood grain texture with fine fiber detail for 4K board rendering. */
+/** Birch/maple wood grain texture with fine fiber detail. */
 export function getWoodTexture(): THREE.CanvasTexture {
   if (woodTexture) return woodTexture;
-  const size = 2048;
+  const size = 1024;
   const k = size / 512;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
@@ -69,7 +69,7 @@ export function getWoodTexture(): THREE.CanvasTexture {
 /** Soft pastel tabletop halo fading cleanly into the scene background. */
 export function getTableMatTexture(): THREE.CanvasTexture {
   if (tableMatTexture) return tableMatTexture;
-  const size = 1024;
+  const size = 512;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
@@ -85,12 +85,12 @@ export function getTableMatTexture(): THREE.CanvasTexture {
   return tableMatTexture;
 }
 
-/** Crisp 1K ink-line mascot watermark placed at the center of each team's yard. */
+/** Crisp ink-line mascot watermark placed at the center of each team's yard. */
 export function getTeamEmblemTexture(team: TeamId): THREE.CanvasTexture {
   const cached = emblemTextures.get(team);
   if (cached) return cached;
 
-  const size = 1024;
+  const size = 512;
   const baseSize = 256;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
