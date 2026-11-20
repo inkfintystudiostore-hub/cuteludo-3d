@@ -110,7 +110,7 @@ export class PlayerWalletDO extends DurableObject {
       const fresh = defaultWallet(now);
       const src = body.wallet;
       if (src && typeof src.balance === 'number' && Number.isFinite(src.balance) && src.balance >= 0) {
-        fresh.balance = Math.min(2000, Math.floor(src.balance));
+        fresh.balance = Math.min(STARTING_COINS, Math.floor(src.balance));
         if (typeof src.lastFreeSpinAt === 'number' && Number.isFinite(src.lastFreeSpinAt)) {
           fresh.lastFreeSpinAt = src.lastFreeSpinAt;
         }
@@ -135,6 +135,31 @@ export class PlayerWalletDO extends DurableObject {
       }
       await this.ctx.storage.put('wallet', fresh);
       return Response.json({ ok: true, wallet: publicWallet(fresh) });
+    }
+
+    if (url.pathname === '/credit-existing' && request.method === 'POST') {
+      const existing = await this.ctx.storage.get<StoredWallet>('wallet');
+      if (!existing) {
+        return Response.json({ ok: true, skipped: true });
+      }
+      let creditBody: { amount?: unknown; txId?: unknown } = {};
+      try {
+        creditBody = (await request.json()) as { amount?: unknown; txId?: unknown };
+      } catch {
+        return Response.json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
+      }
+      const amount = Math.floor(Number(creditBody.amount ?? 0));
+      const txId = typeof creditBody.txId === 'string' ? creditBody.txId.trim() : '';
+      if (!Number.isFinite(amount) || amount <= 0 || !txId) {
+        return Response.json({ ok: false, error: 'Invalid amount or txId' }, { status: 400 });
+      }
+      if (existing.creditedTxs.includes(txId)) {
+        return Response.json({ ok: true, duplicate: true, balance: existing.balance });
+      }
+      existing.balance += amount;
+      existing.creditedTxs = [...existing.creditedTxs.slice(-99), txId];
+      await this.ctx.storage.put('wallet', existing);
+      return Response.json({ ok: true, credited: true, balance: existing.balance });
     }
 
     const wallet = await this.load(now);

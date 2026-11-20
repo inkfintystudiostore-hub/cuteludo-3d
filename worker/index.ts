@@ -46,6 +46,16 @@ interface Env extends PaymentEnv {
   MATCHMAKER: DurableObjectNamespace<MatchmakerDO>;
   PLAYER_ACCOUNT: DurableObjectNamespace<AccountDO>;
   AUTH_SECRET?: string;
+  ADMIN_SECRET?: string;
+}
+
+function timingSafeEqualStr(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
 }
 
 interface SocketAttachment {
@@ -367,6 +377,62 @@ export default {
       }
 
       return withCorsHeaders(Response.json({ ok: false, error: 'Unknown auth route' }, { status: 404 }));
+    }
+
+    if (url.pathname === '/api/admin/grant-coins' && request.method === 'POST') {
+      const secret = env.ADMIN_SECRET?.trim();
+      const token = extractBearerToken(request) ?? '';
+      if (!secret || !timingSafeEqualStr(token, secret)) {
+        return Response.json({ ok: false, error: 'Not found' }, { status: 404 });
+      }
+      let body: { objectIds?: unknown; amount?: unknown; txId?: unknown } = {};
+      try {
+        body = (await request.json()) as typeof body;
+      } catch {
+        return Response.json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
+      }
+      const objectIds = Array.isArray(body.objectIds)
+        ? body.objectIds.filter((id): id is string => typeof id === 'string' && /^[0-9a-f]{64}$/i.test(id))
+        : [];
+      const amount = Math.floor(Number(body.amount ?? 0));
+      const txId = typeof body.txId === 'string' ? body.txId.trim() : '';
+      if (objectIds.length === 0 || objectIds.length > 40 || !Number.isFinite(amount) || amount <= 0 || !txId) {
+        return Response.json({ ok: false, error: 'Invalid batch parameters' }, { status: 400 });
+      }
+      let credited = 0;
+      let duplicate = 0;
+      let skipped = 0;
+      let errors = 0;
+      await Promise.all(
+        objectIds.map(async (id) => {
+          try {
+            const stub = env.PLAYER_WALLET.get(env.PLAYER_WALLET.idFromString(id));
+            const res = await stub.fetch('https://internal/credit-existing', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ amount, txId }),
+            });
+            const data = (await res.json()) as {
+              ok?: boolean;
+              credited?: boolean;
+              duplicate?: boolean;
+              skipped?: boolean;
+            };
+            if (!res.ok || !data.ok) {
+              errors += 1;
+            } else if (data.credited) {
+              credited += 1;
+            } else if (data.duplicate) {
+              duplicate += 1;
+            } else if (data.skipped) {
+              skipped += 1;
+            }
+          } catch {
+            errors += 1;
+          }
+        }),
+      );
+      return Response.json({ ok: true, credited, duplicate, skipped, errors });
     }
 
     if (url.pathname.startsWith('/api/wallet')) {

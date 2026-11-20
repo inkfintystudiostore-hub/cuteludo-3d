@@ -7,7 +7,7 @@ export const MIN_FRIENDS_STAKE = 100;
 export const FRIENDS_STAKE_TIERS = [100, 250, 500, 1000] as const;
 export type FriendsStakeTier = (typeof FRIENDS_STAKE_TIERS)[number];
 
-export const STARTING_COINS = 500;
+export const STARTING_COINS = 5000;
 export const MAX_AD_SPINS_PER_DAY = 3;
 export const FREE_SPIN_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 export const HOUSE_RAKE_RATE = 0.1;

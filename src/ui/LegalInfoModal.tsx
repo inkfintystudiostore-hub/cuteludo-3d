@@ -259,14 +259,30 @@ export function LegalInfoModal({ initialTab = 'privacy', onClose }: LegalInfoMod
         <div className="flex flex-wrap items-center justify-between gap-2 border-t-2 border-ink/15 pt-2 text-[11px] font-semibold text-ink/70">
           <span>&copy; {new Date().getFullYear()} Inkfinity Studio. All rights reserved.</span>
           {!IS_POKI_BUILD && (
-            <a
-              href="https://inkfinitystudio.store"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-bold text-ink underline"
-            >
-              inkfinitystudio.store ↗
-            </a>
+            <div className="flex items-center gap-3">
+              <a
+                href={
+                  activeTab === 'rules'
+                    ? '/how-to-play.html'
+                    : activeTab === 'privacy'
+                      ? '/privacy.html'
+                      : '/terms.html'
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-bold text-ink underline"
+              >
+                Open full page ↗
+              </a>
+              <a
+                href="https://inkfinitystudio.store"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-bold text-ink underline"
+              >
+                inkfinitystudio.store ↗
+              </a>
+            </div>
           )}
         </div>
       </div>

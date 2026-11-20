@@ -25,12 +25,13 @@ describe('walletStore & economy math', () => {
   it('deducts and credits coins safely without going negative', () => {
     const wallet = useWalletStore.getState();
     expect(wallet.balance).toBe(STARTING_COINS);
+    expect(STARTING_COINS).toBe(5000);
     expect(wallet.deduct(100)).toBe(true);
-    expect(useWalletStore.getState().balance).toBe(400);
-    expect(wallet.deduct(500)).toBe(false);
-    expect(useWalletStore.getState().balance).toBe(400);
+    expect(useWalletStore.getState().balance).toBe(4900);
+    expect(wallet.deduct(5000)).toBe(false);
+    expect(useWalletStore.getState().balance).toBe(4900);
     wallet.credit(250);
-    expect(useWalletStore.getState().balance).toBe(650);
+    expect(useWalletStore.getState().balance).toBe(5150);
   });
 
   it('computes match payouts with 10% rake and team split', () => {
@@ -50,7 +51,7 @@ describe('walletStore & economy math', () => {
     const t0 = Date.UTC(2026, 10, 18, 10, 0, 0);
     expect(useWalletStore.getState().canFreeSpin(t0)).toBe(true);
     useWalletStore.getState().recordSpin(true, 100, t0);
-    expect(useWalletStore.getState().balance).toBe(600);
+    expect(useWalletStore.getState().balance).toBe(5100);
     expect(useWalletStore.getState().canFreeSpin(t0 + 1000)).toBe(false);
     expect(useWalletStore.getState().canFreeSpin(t0 + FREE_SPIN_COOLDOWN_MS)).toBe(true);
 
