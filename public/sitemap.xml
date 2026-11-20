@@ -13,6 +13,24 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://ludo.inkfinitystudio.store/strategies.html</loc>
+    <lastmod>2026-11-20</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://ludo.inkfinitystudio.store/faq.html</loc>
+    <lastmod>2026-11-20</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://ludo.inkfinitystudio.store/about.html</loc>
+    <lastmod>2026-11-20</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://ludo.inkfinitystudio.store/privacy.html</loc>
     <lastmod>2026-11-20</lastmod>
     <changefreq>monthly</changefreq>

@@ -1210,7 +1210,7 @@ export function HomeLobbyModal() {
 
         {/* Legal & Policy Footer */}
         <footer className="mt-0.5 flex flex-wrap items-center justify-between gap-1.5 border-t-2 border-ink/15 pt-2 text-[10px] font-bold text-ink/75 sm:text-[11px]">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <button
               type="button"
               onClick={() => setLegalModalTab('rules')}
@@ -1234,6 +1234,30 @@ export function HomeLobbyModal() {
             >
               ⚖️ Terms
             </button>
+            {!IS_POKI_BUILD && (
+              <>
+                <span>•</span>
+                <a href="/strategies.html" className="underline hover:text-ink">
+                  Strategies
+                </a>
+                <span>•</span>
+                <a href="/faq.html" className="underline hover:text-ink">
+                  FAQ
+                </a>
+                <span>•</span>
+                <a href="/about.html" className="underline hover:text-ink">
+                  About
+                </a>
+                <span>•</span>
+                <a href="/privacy.html" className="underline hover:text-ink">
+                  Privacy Page
+                </a>
+                <span>•</span>
+                <a href="/terms.html" className="underline hover:text-ink">
+                  Terms Page
+                </a>
+              </>
+            )}
           </div>
           {!IS_POKI_BUILD && (
             <a
