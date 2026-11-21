@@ -527,6 +527,9 @@ export default {
     if (!contentType.includes('text/html')) return assetRes;
 
     const headers = new Headers(assetRes.headers);
+    if (!/charset=/i.test(contentType)) {
+      headers.set('Content-Type', 'text/html; charset=utf-8');
+    }
     headers.delete('X-Frame-Options');
     headers.set('Content-Security-Policy', FRAME_ANCESTORS_CSP);
     headers.set('X-Content-Type-Options', 'nosniff');
